@@ -213,7 +213,7 @@ void* render_backup(void* args) {
     return NULL;
 }
 
-int main(char* argv) {
+int main(int argc, char* argv[]) {
     // Download commit hashes file
     // TODO: see file top
 
