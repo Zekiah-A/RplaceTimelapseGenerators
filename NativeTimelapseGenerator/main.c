@@ -214,15 +214,21 @@ void* render_backup(void* args) {
 }
 
 int main(int argc, char* argv[]) {
+    char* hash = malloc(40);
+    
     // Download commit hashes file
-    // TODO: see file top
-
-
-    // Read list of all
-    FILE* file = fopen("commit_hashes.txt", "r");
-    if (file == NULL) {
-        printf("Very big error, could not locate commit hashes file\n");
-        return 1;
+    for (int i = 0; i < argc; i++) {
+        if (strcmp("--help", argv[i]) == 0) {
+            printf("\x1b[32mRplace Timelapse Generator (c) Zekiah-A\x1b[0m\nRun this program with no arguments, but a supplied \x1b[1;4mcommit_hashes.txt\x1b[0m "
+            "file to generate backups from all commit hashes.\n\nTo generate a backup from a single commit hash, run the "
+            "program with the specified commit hash, i.e \x1b[1;4m./main 69190a70f0d116029f5cf882d9ab4e336ac42664\x1b[0m.\n\n"
+            "To stop the program while it is generating backups, enter '\x1b[1;4mexit\x1b[0m', to gracefully terminate all threads.\x1b[0m\n\n");
+            return 0;
+        }
+        else if(strlen(argv[i]) == 40) {
+            memcpy(hash, argv[i], 40);
+            hash[41] = '\0';
+        }
     }
 
     // Setup backups dir variable
@@ -230,40 +236,67 @@ int main(int argc, char* argv[]) {
     strcat(backups_dir, "/backups/");
     mkdir(backups_dir, 0755);
 
-    long file_lines = 7957; //flines(file);
-    char* lines = malloc(file_lines * 40);
-
-    for (int i = 0; i < file_lines; i++) {
-        char* line = NULL;
-        unsigned long length = 0; // This should always be 40 anyway
-        getline(&line, &length, file);
-        memcpy(lines + (i * 40), line, 40);
-    }
-
     if (pthread_mutex_init(&fetch_lock, NULL) != 0)
     {
-        printf("Fetch lock mutex init failed\n");
+        printf("\x1b[1;31mError, fetch lock mutex init failed, try running again\n");
         return 1;
     }
 
-    // Split up lines into respective chunks, each thread handles a chunk to render
-    int per_thread = file_lines / THREAD_COUNT;
-    for (int i = 0; i < THREAD_COUNT; i++) {
+    if (strlen(hash) > 0) {
+        printf("Using provided commit hash, see --help for info on more commands.\n");
         struct render_task* task = malloc(sizeof(struct render_task));
-        task->lines = lines + (40 * per_thread * i);
-        task->length = per_thread;
+        task->lines = hash;
+        task->length = 1;
 
         pthread_create(threads + threads_top, NULL, render_backup, task);
-        threads_top++;
-    }
 
-    // Pro move, actually let's make this unsafe too
-    while (threads_finished < THREAD_COUNT) {
-        char input[256];
-        scanf("%s", input);
-        if (strcmp(input, "exit") == 0) {
-            printf("Stopping\n");
-            return 0;
+        while (threads_finished == 0) {
+            char input[256];
+            scanf("%s", input);
+            if (strcmp(input, "exit") == 0) {
+                printf("Stopping\n");
+                return 0;
+            }
+        }
+    }
+    else {
+        printf("Using commit hashes file, see --help for info on more commands.\n");
+        // Read list of all
+        FILE* file = fopen("commit_hashes.txt", "r");
+        if (file == NULL) {
+            printf("\x1b[1;31mError, could not locate commit hashes file (commit_hashes.txt)\n");
+            return 1;
+        }
+
+        long file_lines = 7957; //flines(file);
+        char* lines = malloc(file_lines * 40);
+
+        for (int i = 0; i < file_lines; i++) {
+            char* line = NULL;
+            unsigned long length = 0; // This should always be 40 anyway
+            getline(&line, &length, file);
+            memcpy(lines + (i * 40), line, 40);
+        }
+
+        // Split up lines into respective chunks, each thread handles a chunk to render
+        int per_thread = file_lines / THREAD_COUNT;
+        for (int i = 0; i < THREAD_COUNT; i++) {
+            struct render_task* task = malloc(sizeof(struct render_task));
+            task->lines = lines + (40 * per_thread * i);
+            task->length = per_thread;
+
+            pthread_create(threads + threads_top, NULL, render_backup, task);
+            threads_top++;
+        }
+
+        // Pro move, actually let's make this unsafe too
+        while (threads_finished < THREAD_COUNT) {
+            char input[256];
+            scanf("%s", input);
+            if (strcmp(input, "exit") == 0) {
+                printf("Stopping\n");
+                return 0;
+            }
         }
     }
 
