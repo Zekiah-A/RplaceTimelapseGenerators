@@ -8,7 +8,9 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-// Rplace timelapse generator, except in C!
+// Rplace timelapse generator, except in C! A plaintext list of all backups, separated by newline
+// must be from git history (git clone https://rslashplace2/rslashplace2.github.io), (then in the root
+// rplace directory), run git log --follow -- place > commit_hashes.txt), then placed in the folder of this.
 // gcc -o main -lpng -lcurl main.c
 
 #define THREAD_COUNT 4
@@ -211,9 +213,9 @@ void* render_backup(void* args) {
     return NULL;
 }
 
-int main() {
+int main(char* argv) {
     // Download commit hashes file
-
+    // TODO: see file top
 
 
     // Read list of all
