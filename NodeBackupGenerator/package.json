@@ -1,0 +1,16 @@
+{
+  "name": "neo",
+  "version": "1.0.0",
+  "description": "1",
+  "main": "downloader.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "type": "module",
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "jimp": "^0.16.1",
+    "node-fetch": "^3.2.3"
+  }
+}
