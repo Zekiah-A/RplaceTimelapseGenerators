@@ -1,4 +1,4 @@
-# RplaceBackupGenerators
+# RplaceTimelapseGenerators
 A collection of backup/timelapse generators for the site https://rplace.tk.
 
  - See the rplace server software @[RplaceServer](https://github.com/Zekiah-A/RplaceServer.git) for info on hosting your own rplace instance. 
