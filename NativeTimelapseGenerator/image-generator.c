@@ -10,6 +10,8 @@
 #include <unistd.h>
 #include <stdint.h>
 #include "image-generator.h"
+#include "main-thread.h"
+#include "console.h"
 
 uint8_t default_palette[32][3] = {
     {109, 0, 26},
@@ -46,9 +48,10 @@ uint8_t default_palette[32][3] = {
     {255, 255, 255}
 };
 
-struct canvas_image generate_canvas_image(int width, int height, struct region_info region, uint8_t* board, int size)
+
+struct render_result generate_canvas_image(int width, int height, struct region_info region, uint8_t* board, int size)
 {
-    struct canvas_image gen_result = { .error = GENERATION_ERROR_NONE, .error_msg = NULL };
+    struct render_result gen_result = { .error = GENERATION_ERROR_NONE, .error_msg = NULL };
     png_structp png_ptr = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
     if (png_ptr == NULL)
     {
@@ -102,4 +105,18 @@ struct canvas_image generate_canvas_image(int width, int height, struct region_i
     gen_result.data = (uint8_t*) stream_buffer;
     gen_result.length = stream_length;
     return gen_result;
+}
+
+void* start_render_worker(void* data)
+{
+    WorkerInfo* worker_info = (WorkerInfo*) data;
+    worker_info->render_worker_data = (struct render_worker_data*) malloc(sizeof(struct render_worker_data));
+    worker_info->render_worker_data->current_canvas_result = NULL;
+    log_message("Started render worker with thread id %d", worker_info->thread_id);
+
+    while (1)
+    {
+        
+    }
+    return NULL;
 }

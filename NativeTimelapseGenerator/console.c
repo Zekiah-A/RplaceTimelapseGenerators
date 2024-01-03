@@ -6,19 +6,22 @@
 #include <string.h>
 #include <unistd.h>
 #include "dlfcn.h"
+#include "main-thread.h"
 
 void* handle = NULL;
 start_console_delegate start_console_cli = NULL;
 log_message_delegate log_message_cli = NULL;
+stop_console_delegate stop_console_cli = NULL;
 
 // We still in UI thread, must pass back to main thread
-void start_generation()
+void ui_start_generation()
 {
+    main_thread_post((struct main_thread_work) { .func = start_generation });
     log_message("UI requested generation starts"); 
 }
 
 // We still in UI thread, must pass back to main thread
-void stop_generation()
+void ui_stop_generation()
 {
     puts("UI requested generation halts"); 
 }
@@ -39,12 +42,17 @@ void* start_console(void* data)
     if (start_console_cli == NULL)
     {
         puts("Error - Start console library couldn't be loaded!");
-        exit(-1);
+        exit(EXIT_FAILURE);
     }
     log_message_cli = dlsym(handle, "log_message");
 
-    start_console_cli(&start_generation, &stop_generation);
+    start_console_cli(&ui_start_generation, &ui_stop_generation);
     return NULL;
+}
+
+void stop_console()
+{
+    stop_console_cli();
 }
 
 void log_message(const char* format, ...)

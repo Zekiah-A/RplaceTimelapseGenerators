@@ -30,14 +30,14 @@ static unsafe class StaticConsole
         };
         Application.Top.Add(window);
 
-        serverLogListView = new ListView(new Rect(0, 0, 128, 8), serverLogs)
+        serverLogListView = new ListView(new Rect(0, 0, 128, 10), serverLogs)
         {
             Width = Dim.Fill()
         };
         var serverLogPanel = new PanelView
         {
-            Y = Pos.AnchorEnd() - 13,
-            Height = 8,
+            Y = Pos.AnchorEnd() - 12,
+            Height = 10,
             Border = new Border
             {
                 BorderBrush = Color.White,
@@ -52,10 +52,8 @@ static unsafe class StaticConsole
         {
             Text = "Shutdown",
             Y = 1,
-            X = Pos.Center() - 12,
-            IsDefault = true,
+            X = Pos.Center() + 6,
         };
-
         shutdownBtn.Clicked += () =>
         {
             MessageBox.Query("Shutdown", "Halting backups generation", "Okay");
@@ -65,17 +63,16 @@ static unsafe class StaticConsole
 
         var startBtn = new Button()
         {
-            Text = "Shutdown",
+            Text = "Start",
             Y = 1,
-            X = Pos.Center() + 12,
-            IsDefault = true,
+            X = Pos.Center() - 12,
         };
         startBtn.Clicked += () =>
         {
             MessageBox.Query("Start", "Starting backups generation", "Okay");
             startCallback?.Invoke();
         };
-        window.Add(shutdownBtn, serverLogPanel);
+        window.Add(shutdownBtn, startBtn, serverLogPanel);
         Application.Run();
     }
 

@@ -3,8 +3,8 @@
 #include <string.h>
 #include <curl/curl.h>
 #include "canvas-downloader.h"
-
-static __thread CURL* curl_handle = NULL;
+#include "main-thread.h"
+#include "console.h"
 
 static size_t write_callback(void* contents, size_t size, size_t nmemb, void* userp)
 {
@@ -14,30 +14,24 @@ static size_t write_callback(void* contents, size_t size, size_t nmemb, void* us
     return realsize;
 }
 
-struct downloaded_result download_url(const char* url)
+struct downloaded_result download_url(struct download_worker_data* worker_data)
 {
     struct downloaded_result result = { };
-
-    // Initialize for thread if not already
-    if (!curl_handle)
+ 
+    if (!worker_data->curl_handle)
     {
-        curl_handle = curl_easy_init();
-        if (!curl_handle)
-        {
-            result.error = DOWNLOAD_ERROR_NONE;
-            result.error_msg = "Failed to initialize libcurl";
-            return result;
-        }
+        result.error = DOWNLOAD_ERROR_NONE;
+        result.error_msg = "Failed to initialize libcurl";
+        return result;
     }
-
-    curl_easy_setopt(curl_handle, CURLOPT_URL, url);
+    curl_easy_setopt(worker_data->curl_handle, CURLOPT_URL, worker_data->current_canvas_info.url);
 
     char* buffer = NULL;
     long buffer_size = 0;
-    curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, write_callback);
-    curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, &buffer);
+    curl_easy_setopt(worker_data->curl_handle, CURLOPT_WRITEFUNCTION, write_callback);
+    curl_easy_setopt(worker_data->curl_handle, CURLOPT_WRITEDATA, &buffer);
 
-    CURLcode res = curl_easy_perform(curl_handle);
+    CURLcode res = curl_easy_perform(worker_data->curl_handle);
 
     if (res != CURLE_OK)
     {
@@ -46,16 +40,20 @@ struct downloaded_result download_url(const char* url)
     }
     else
     {
-        curl_easy_getinfo(curl_handle, CURLINFO_CONTENT_LENGTH_DOWNLOAD, &buffer_size);
-        result.data = (char*) malloc(buffer_size + 1);
-        if (result.data)
+        curl_easy_getinfo(worker_data->curl_handle, CURLINFO_CONTENT_LENGTH_DOWNLOAD, &buffer_size);
+        result.data = (uint8_t*) malloc(buffer_size);
+        if (!result.data)
+        {
+            result.error = DOWNLOAD_FAIL_FETCH;
+            result.error_msg = "Failed to allocate downlaod result data";
+        }
+        else
         {
             memcpy(result.data, buffer, buffer_size);
-            result.data[buffer_size] = '\0';
+            result.data[buffer_size];
+            result.size = buffer_size;
         }
     }
-
-    // Free the buffer
     if (buffer)
     {
         free(buffer);
@@ -64,12 +62,17 @@ struct downloaded_result download_url(const char* url)
     return result;
 }
 
-// Thread exit
-/*void cleanup_curl()
+void* start_download_worker(void* data) // struct worker_info : identical to download_worker_info 
 {
-    if (curl_handle)
+    WorkerInfo* worker_info = (WorkerInfo*) data;
+    worker_info->download_worker_data = (struct download_worker_data*) malloc(sizeof(struct download_worker_data));
+    worker_info->download_worker_data->curl_handle = curl_easy_init();
+    log_message("Started download worker with thread id %d", worker_info->thread_id);
+
+    // Enter download loop
+    while (1)
     {
-        curl_easy_cleanup(curl_handle);
-        curl_handle = NULL;
+
     }
-}*/
+    return NULL;
+}
