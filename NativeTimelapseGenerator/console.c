@@ -17,7 +17,6 @@ stop_console_delegate stop_console_cli = NULL;
 void ui_start_generation()
 {
     main_thread_post((struct main_thread_work) { .func = start_generation });
-    log_message("UI requested generation starts"); 
 }
 
 // We still in UI thread, must pass back to main thread

@@ -13,6 +13,8 @@
 #include "main-thread.h"
 #include "console.h"
 
+#define LOG_HEADER "[render worker] "
+
 uint8_t default_palette[32][3] = {
     {109, 0, 26},
     {190, 0, 57},
@@ -112,11 +114,11 @@ void* start_render_worker(void* data)
     WorkerInfo* worker_info = (WorkerInfo*) data;
     worker_info->render_worker_data = (struct render_worker_data*) malloc(sizeof(struct render_worker_data));
     worker_info->render_worker_data->current_canvas_result = NULL;
-    log_message("Started render worker with thread id %d", worker_info->thread_id);
+    log_message(LOG_HEADER"Started render worker with thread id %d", worker_info->thread_id);
 
     while (1)
     {
-        
+
     }
     return NULL;
 }

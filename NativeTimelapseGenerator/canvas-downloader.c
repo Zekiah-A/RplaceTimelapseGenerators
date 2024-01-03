@@ -6,6 +6,8 @@
 #include "main-thread.h"
 #include "console.h"
 
+#define LOG_HEADER "[download worker] "
+
 static size_t write_callback(void* contents, size_t size, size_t nmemb, void* userp)
 {
     size_t realsize = size * nmemb;
@@ -67,7 +69,7 @@ void* start_download_worker(void* data) // struct worker_info : identical to dow
     WorkerInfo* worker_info = (WorkerInfo*) data;
     worker_info->download_worker_data = (struct download_worker_data*) malloc(sizeof(struct download_worker_data));
     worker_info->download_worker_data->curl_handle = curl_easy_init();
-    log_message("Started download worker with thread id %d", worker_info->thread_id);
+    log_message(LOG_HEADER"Started download worker with thread id %d", worker_info->thread_id);
 
     // Enter download loop
     while (1)

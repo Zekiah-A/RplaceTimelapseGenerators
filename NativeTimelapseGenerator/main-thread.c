@@ -12,11 +12,13 @@
 #include "image-generator.h"
 #include "main-thread.h"
 #include "canvas-saver.h"
+#include "worker-structs.h"
 
 // Reads canvas list, manages jobs for workers
+#define LOG_HEADER "[main thread] "
 
 // SHARED BETWEEN-WORKER MEMORY
-#define STACK_SIZE_MAX 100
+#define STACK_SIZE_MAX 128
 #define DEFAULT_DOWNLOAD_WORKER_COUNT 2
 struct canvas_info download_stack[STACK_SIZE_MAX];
 int download_stack_top = 0;
@@ -112,18 +114,17 @@ void cleanup_work_queue(struct main_thread_queue* queue)
 // - https://github.com/rslashplace2/rslashplace2.github.io/raw/82153c44c6a3cd3f248c3cd20f1ce6b7f0ce4b1e/place
 int flines(FILE* file)
 {
-    char ch;
-    int count;
-
-    // Apparently getc just gets the next occurance of that char in the file
-    for (ch = getc(file); ch != EOF; ch = getc(file))
+    fseek(file, 0, SEEK_SET);
+    char ch = 0;
+    int count = 0;
+    while ((ch = getc(file)) != EOF)
     {
         if (ch == '\n')
         {
             count++;
         }
     }
-
+    fseek(file, 0, SEEK_SET);
     return count;
 }
 
@@ -169,54 +170,154 @@ void main_thread_post(struct main_thread_work work)
 }
 
 // Called by main thread
-void push_download_queue(struct canvas_info result)
+void push_download_stack(struct canvas_info result)
 {
     download_stack[download_stack_top] = result;
     download_stack_top++;
+
+    if (download_stack_top > STACK_SIZE_MAX)
+    {
+        fprintf(stderr, "Error - Download stack overflow occurred\n");
+        exit(EXIT_FAILURE);
+    }
 }
 
 // Called by download worker
-void push_render_queue(struct downloaded_result result)
+void push_render_stack(struct downloaded_result result)
 {
     render_stack[render_stack_top] = result;
     render_stack_top++;
+
+    if (render_stack_top > STACK_SIZE_MAX)
+    {
+        fprintf(stderr, "Error - Download stack overflow occurred\n");
+        exit(EXIT_FAILURE);
+    }
 }
 
 // Called by render worker
-void push_save_queue(struct render_result result)
+void push_save_stack(struct render_result result)
 {
-    save_stack[download_stack_top] = result;
+    save_stack[save_stack_top] = result;
     save_stack_top++;
+
+    if (save_stack_top > STACK_SIZE_MAX)
+    {
+        fprintf(stderr, "Error - Download stack overflow occurred\n");
+        exit(EXIT_FAILURE);
+    }
 }
 
-// Start all workers, initiate rendering backups
+#define MAX_HASHES_LINE_LEN 256
+#define EXPECT_COMMIT_LINE 0
+#define EXPECT_AUTHOR_LINE 1
+#define EXPECT_DATE_LINE 2
+
+// Commit: ...\n, Author: ...\n, Date: ...\n, top is most recent, bottom of log is longest ago
+//  - Both files have been manually assimilated into commit_hashes.txt
+//  - canvas_1_commit_hashes.txt - only process commits from "root", from after 1672531200,
+//  - commit (1672531012, 48a24088916a63319a56c245a0290d66cf29e076) is the first commit (Jan 1st), 2023
+//  - repo_commit_hashes.txt - Only process commits from "nebulus"
+/*Commit: 49fdda2c4f38f7afd8af2c178b450e8f0fcae65b
+Author: nebulus
+Date: 1704298864*/
+
+// Start all workers, initiate rendering backups 
 void start_generation()
 {
-    char* hash = malloc(40);
+    char hash[40];
 
     // Setup backups dir variable
     getcwd(backups_dir, sizeof(backups_dir));
     strcat(backups_dir, "/backups/");
     mkdir(backups_dir, 0755);
 
-    log_message("Using commit hashes file, see --help for info on more commands.\n");
-    // Read list of all
     FILE* file = fopen("commit_hashes.txt", "r");
-    if (file == NULL) {
-        fprintf(stderr, "\x1b[1;31mError, could not locate commit hashes file (commit_hashes.txt)\n");
+    if (file == NULL)
+    {
+        fprintf(stderr, "\x1b[1;31mError, could not locate canvas 1 hashes file (commit_hashes.txt)\n");
         exit(EXIT_FAILURE);
     }
 
-    long file_lines = 7957; //flines(file);
-    char* lines = malloc(file_lines * 40);
+    int expect = EXPECT_COMMIT_LINE;
+    long file_lines = flines(file);
+    struct canvas_info new_canvas_info = {};
+    char line[MAX_HASHES_LINE_LEN];
+    char* result = NULL;
+    int line_index = 0;
+    log_message(LOG_HEADER"Detected %d lines in commit_hashes.txt", file_lines);
+    
+    while ((result = fgets(line, MAX_HASHES_LINE_LEN, file)) != NULL)
+    {
+        line_index++;
+        // Comment or ignore
+        if (strlen(result) == 0 || result[0] == '#' || result[0] == '\n')
+        {
+            continue;
+        }
 
-    for (int i = 0; i < file_lines; i++) {
-        char* line = NULL;
-        unsigned long length = 0; // This should always be 40 anyway
-        getline(&line, &length, file);
-        memcpy(lines + (i * 40), line, 40);
+        if (strncmp(result, "Commit: ", 8) == 0)
+        {
+            if (expect != EXPECT_COMMIT_LINE)
+            {
+                continue;
+            }
+            
+            int hash_len = strlen(result) - 8;
+            char* commit_hash = malloc(hash_len + 1);
+            strcpy(commit_hash, result + 8);
+            new_canvas_info.commit_hash = commit_hash;
+            const char* raw_url = "https://raw.githubusercontent.com/rslashplace2/rslashplace2.github.io/%s/place";
+            int url_length = snprintf(NULL, 0, raw_url, commit_hash);
+            char* url = (char*) malloc(url_length + 1);
+            snprintf(url, url_length, raw_url, commit_hash);
+            new_canvas_info.url = url;
+            expect = EXPECT_AUTHOR_LINE;
+        }
+        else if (strncmp(result, "Author: ", 8) == 0)
+        {
+            if (expect != EXPECT_AUTHOR_LINE)
+            {
+                continue;
+            }
+
+            char* author = result + 8;
+            if (strcmp(author, "root") != 0 && strcmp(author, "nebulus") != 0)
+            {
+                // Ignore this commit, it is not a canvas push
+                expect = EXPECT_COMMIT_LINE;
+                memset(&new_canvas_info, 0, sizeof(struct canvas_info)); // Wipe for reuse
+            }
+            expect = EXPECT_DATE_LINE;
+        }
+        else if (strncmp(result, "Date: ", 6) == 0)
+        {
+            if (expect != EXPECT_DATE_LINE)
+            {
+                continue;
+            }
+
+            int date_len = strlen(result) - 6;
+            char* date = malloc(date_len + 1);
+            strcpy(date, result + 6);
+            time_t date_int = strtoull(date, NULL, 10);
+            new_canvas_info.date = date_int;
+            free(date);
+
+            // Commit data to download stack
+            push_download_stack(new_canvas_info);
+            memset(&new_canvas_info, 0, sizeof(struct canvas_info)); // Wipe for reuse
+            expect = EXPECT_COMMIT_LINE;
+        }
+        else
+        {
+            fprintf(stderr, "(Line %d) Failed to read commit hashes, invalid character\n", line_index);
+            exit(EXIT_FAILURE);
+        }
     }
 
+    // fclose
+    log_message(LOG_HEADER"starting backup generation");
     for (int i = 0; i < DEFAULT_DOWNLOAD_WORKER_COUNT; i++)
     {
         add_download_worker();

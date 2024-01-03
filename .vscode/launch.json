@@ -8,7 +8,7 @@
             "name": "(gdb) Launch",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/NativeTimelapseGenerator/console",
+            "program": "${workspaceFolder}/NativeTimelapseGenerator/NativeTimelapseGenerator",
             "args": [],
             "stopAtEntry": false,
             "cwd": "${fileDirname}",
