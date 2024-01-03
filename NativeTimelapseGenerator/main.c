@@ -7,6 +7,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include "console.h"
 
 // Rplace timelapse generator, except in C! A plaintext list of all backups, separated by newline
 // must be from git history (git clone https://rslashplace2/rslashplace2.github.io), (then in the root
@@ -29,52 +30,17 @@ struct memory_fetch {
     char* memory;
 };
 
-struct colour {
-    char red;
-    char green;
-    char blue;
-};
-
-char colours[32][3] = {
-    { 109, 0, 26 },
-    { 190, 0, 57 },
-    { 255, 69, 0 },
-    { 255, 168, 0 },
-    { 255, 214, 53 },
-    { 255, 248, 184 },
-    { 0, 163, 104 },
-    { 0, 204, 120 },
-    { 126, 237, 86 },
-    { 0, 117, 111 },
-    { 0, 158, 170 },
-    { 0, 204, 192 },
-    { 36, 80, 164 },
-    { 54, 144, 234 },
-    { 81, 233, 244 },
-    { 73, 58, 193 },
-    { 106, 92, 255 },
-    { 148, 179, 255 },
-    { 129, 30, 159 },
-    { 180, 74, 192 },
-    { 228, 171, 255 },
-    { 222, 16, 127 },
-    { 255, 56, 129 },
-    { 255, 153, 170 },
-    { 109, 72, 47 },
-    { 156, 105, 38 },
-    { 255, 180, 112 },
-    { 0, 0, 0 },
-    { 81, 82, 82 },
-    { 137, 141, 144 },
-    { 212, 215, 217 },
-    { 255, 255, 255 }
-};
-
 int width = 2000;
 int height = 2000;
 int backups_finished = 0;
 char backups_dir[256];
 pthread_mutex_t fetch_lock;
+
+// Main thread creates download worker, reads file incrementally, giving each download worker
+// the corresponding canvas to download to memory.
+// Download workers run, push curl results to the canvas queue,
+// These are then processed by the render workers, which render out the canvases
+// These are finally passed to save workers, which pull the results from the render workers and save to disk
 
 // Fetch methods
 // - https://raw.githubusercontent.com/rslashplace2/rslashplace2.github.io/82153c44c6a3cd3f248c3cd20f1ce6b7f0ce4b1e/place
@@ -93,27 +59,7 @@ int flines(FILE* file) {
 
     return count;
 }
-
-static size_t write_fetch(void* contents, size_t size, size_t nmemb, void* userp) {
-    // Size * number of elements
-    size_t data_size = size * nmemb;
-    struct memory_fetch* fetch = (struct memory_fetch*) userp;
-
-    char* new_memory = realloc(fetch->memory, fetch->size + data_size + 1);
-    if (new_memory == NULL) {
-        printf("Out of memory, can not carray out fetch reallocation\n");
-        return 0;
-    }
-
-    fetch->memory = new_memory;
-    memcpy(&(fetch->memory[fetch->size]), contents, data_size);
-    fetch->size += data_size;
-    fetch->memory[fetch->size] = 0;
- 
-    return data_size;
-}
-
-
+/*
 void* render_backup(void* args) {
     struct render_task* task = (struct render_task*) args;
     CURL *curl = curl_easy_init();
@@ -154,54 +100,6 @@ void* render_backup(void* args) {
             continue;
         }
 
-        char backup_name[256];
-        snprintf(backup_name, 256, "%sbackup_%s.png", backups_dir, line);
-
-        FILE *file = fopen(backup_name, "wb");
-        if (!file) {
-            printf("Error: could not open file for writing.\n");
-            continue;
-        }
-
-        png_structp png_ptr = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
-        if (!png_ptr) {
-            printf("Error: could not create PNG write structure.\n");
-            fclose(file);
-            continue;
-        }
-
-        png_infop info_ptr = png_create_info_struct(png_ptr);
-        if (!info_ptr) {
-            printf("Error: could not create PNG info structure.\n");
-            png_destroy_write_struct(&png_ptr, NULL);
-            fclose(file);
-            continue;
-        }
-
-        png_init_io(png_ptr, file);
-        png_set_IHDR(png_ptr, info_ptr, width, height, 8, PNG_COLOR_TYPE_RGB, PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
-        png_write_info(png_ptr, info_ptr);
-
-        png_bytep row_pointers[height];
-        
-        // Okay now we can actually draw
-        for (int i = 0; i < height; i++) {
-            row_pointers[i] = (png_bytep) calloc(3 * width, sizeof(png_byte));
-            for (int j = 0; j < width; j++) {
-                int index = i * width + j;
-                memcpy(&row_pointers[i][3 * j], colours[chunk.memory[index]], 3);
-            }
-        }
-
-        png_write_image(png_ptr, row_pointers);
-
-        for (int i = 0; i < height; i++) {
-            free(row_pointers[i]);
-        }
-
-        png_write_end(png_ptr, NULL);
-        png_destroy_write_struct(&png_ptr, &info_ptr);
-        fclose(file);
 
         printf("Completed backup %s, finished %d.\n", line, backups_finished);
         backups_finished++;
@@ -212,8 +110,26 @@ void* render_backup(void* args) {
     curl_easy_cleanup(curl);
     return NULL;
 }
+*/
 
-int main(int argc, char* argv[]) {
+int main(int argc, char* argv[])
+{
+    // Start console
+    pthread_t thread_id; 
+    pthread_create(&thread_id, NULL, start_console, NULL); 
+
+    // Start process
+    curl_global_init(CURL_GLOBAL_DEFAULT);
+    while (1) {
+        sleep(1);
+    }
+
+
+    // Shutdown
+    curl_global_cleanup();
+    pthread_exit(NULL);
+    return 0;
+    /*
     char* hash = malloc(40);
     
     // Download commit hashes file
@@ -301,5 +217,5 @@ int main(int argc, char* argv[]) {
     }
 
     pthread_mutex_destroy(&fetch_lock);
-    return 0;
+    return 0;*/
 }

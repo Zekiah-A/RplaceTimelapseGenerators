@@ -1,4 +1,5 @@
+# Project files
 main
 main.exe
 backups/
-.vscode/
+generator
