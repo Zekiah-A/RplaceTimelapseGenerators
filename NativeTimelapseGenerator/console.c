@@ -1,31 +1,51 @@
 #include "console.h"
+#include <linux/limits.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 #include "dlfcn.h"
 
-typedef void (*start_console_delegate)(void*);
+void* handle = NULL;
+start_console_delegate start_console_cli = NULL;
+log_message_delegate log_message_cli = NULL;
 
-void handle_shutdown()
+// We still in UI thread, must pass back to main thread
+void start_generation()
 {
-    puts("C Handle shutdown called"); 
+    log_message("UI requested generation starts"); 
+}
+
+// We still in UI thread, must pass back to main thread
+void stop_generation()
+{
+    puts("UI requested generation halts"); 
 }
 
 void* start_console(void* data)
 {
-    char* console_lib_path = "/home/zekiah/RplaceTimelapseGenerators/NativeTimelapseGenerator.Console/bin/Release/net8.0/linux-x64/publish/NativeTimelapseGenerator.Console.so";
-    void* handle = dlopen(console_lib_path, RTLD_LAZY);
-    start_console_delegate start_console_cli = dlsym(handle, "start_console");
+    const char* console_lib_name = "NativeTimelapseGenerator.Console.so";
+    char lib_path[PATH_MAX];
+    getcwd(lib_path, sizeof(lib_path));
+    if (lib_path[strlen(lib_path) - 1] != '/')
+    {
+        strcat(lib_path, "/");
+    }
+    strcat(lib_path, console_lib_name);
+
+    handle = dlopen(lib_path, RTLD_LAZY);
+    start_console_cli = dlsym(handle, "start_console");
     if (start_console_cli == NULL)
     {
         puts("Error - Start console library couldn't be loaded!");
         exit(-1);
     }
-    start_console_cli(&handle_shutdown);
+    log_message_cli = dlsym(handle, "log_message");
+
+    start_console_cli(&start_generation, &stop_generation);
     return NULL;
 }
-
 
 void log_message(const char* format, ...)
 {
@@ -39,7 +59,10 @@ void log_message(const char* format, ...)
     vsnprintf(buffer, size, format, args);
     va_end(args);
 
-    //print_log(buffer);
+    if (log_message_cli != NULL)
+    {
+        log_message_cli(buffer);
+    }
 
     free(buffer);
 }

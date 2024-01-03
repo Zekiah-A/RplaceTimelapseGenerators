@@ -42,7 +42,7 @@ struct downloaded_result download_url(const char* url)
     if (res != CURLE_OK)
     {
         result.error = DOWNLOAD_FAIL_FETCH;
-        result.error_msg = curl_easy_strerror(res);
+        result.error_msg = (char*) curl_easy_strerror(res);
     }
     else
     {

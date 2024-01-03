@@ -2,4 +2,6 @@
 main
 main.exe
 backups/
-generator
+NativeTimelapseGenerator
+NativeTimelapseGenerator.Console.so
+NativeTimelapseGenerator.Console.so.dbg

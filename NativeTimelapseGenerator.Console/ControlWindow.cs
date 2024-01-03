@@ -3,61 +3,97 @@ using Terminal.Gui;
 using System.Runtime.InteropServices;
 
 // dotnet publish -r linux-x64 -c Release
-static class StaticConsole
+static unsafe class StaticConsole
 {
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    public delegate void ShutdownCallback();
-    public static ShutdownCallback? shutdownCallback = null;
+    private delegate void Callback();
+    private static Callback? shutdownCallback = null;
+    private static Callback? startCallback = null;
+    private static List<string> serverLogs = new List<string>();
+    private static ListView? serverLogListView = null;
 
     [UnmanagedCallersOnly(EntryPoint = "start_console")]
-    public static unsafe void StartConsole(IntPtr shutdownCallbackPtr)
+    public static void StartConsole(IntPtr startCallbackPtr, IntPtr shutdownCallbackPtr)
     {
-        Application.Run<ControlWindow>();
-        shutdownCallback = Marshal.GetDelegateForFunctionPointer<ShutdownCallback>(shutdownCallbackPtr);
-        Application.Shutdown();
-        shutdownCallback();
-    }
+        // Callbacks
+        shutdownCallback = Marshal.GetDelegateForFunctionPointer<Callback>(shutdownCallbackPtr);
+        startCallback = Marshal.GetDelegateForFunctionPointer<Callback>(startCallbackPtr);
 
-    [UnmanagedCallersOnly(EntryPoint = "stop_console")]
-    public static unsafe void StartConsole(IntPtr shutdownCallbackPtr)
-    {
-        Application.Shutdown();
-        shutdownCallback();
-    }
-
-}
-
-public class ControlWindow : Window
-{
-    public ControlWindow()
-    {
-        Title = "NativeTimelapseGenerator Control Panel (Ctrl+Q to quit)";
-
-        var usernameLabel = new Label()
+        // GUI App
+        Application.Init();
+        var window = new Window("NativeTimelapseGenerator Control Panel (Ctrl+Q to quit)")
         {
-            Text = "Username:"
-        };
-
-        var usernameText = new TextField("")
-        {
-            X = Pos.Right(usernameLabel) + 1,
+            X = 0,
+            Y = 0,
             Width = Dim.Fill(),
+            Height = Dim.Fill()
+        };
+        Application.Top.Add(window);
+
+        serverLogListView = new ListView(new Rect(0, 0, 128, 8), serverLogs)
+        {
+            Width = Dim.Fill()
+        };
+        var serverLogPanel = new PanelView
+        {
+            Y = Pos.AnchorEnd() - 13,
+            Height = 8,
+            Border = new Border
+            {
+                BorderBrush = Color.White,
+                BorderStyle = BorderStyle.Rounded,
+                Title = "Server logs"
+            },
+            ColorScheme = Colors.Base,
+            Child = serverLogListView
         };
 
-        var btnShutdown = new Button()
+        var shutdownBtn = new Button()
         {
             Text = "Shutdown",
-            Y = Pos.Bottom(passwordLabel) + 1,
-            X = Pos.Center(),
+            Y = 1,
+            X = Pos.Center() - 12,
             IsDefault = true,
         };
 
-        btnShutdown.Clicked += () =>
+        shutdownBtn.Clicked += () =>
         {
             MessageBox.Query("Shutdown", "Halting backups generation", "Okay");
-            Application.RequestStop();
+            Application.Shutdown();
+            shutdownCallback?.Invoke();
         };
 
-        Add(usernameLabel, usernameText, passwordLabel, passwordText, btnShutdown);
+        var startBtn = new Button()
+        {
+            Text = "Shutdown",
+            Y = 1,
+            X = Pos.Center() + 12,
+            IsDefault = true,
+        };
+        startBtn.Clicked += () =>
+        {
+            MessageBox.Query("Start", "Starting backups generation", "Okay");
+            startCallback?.Invoke();
+        };
+        window.Add(shutdownBtn, serverLogPanel);
+        Application.Run();
+    }
+
+    [UnmanagedCallersOnly(EntryPoint = "log_message")]
+    public static void LogMessage(IntPtr messageChars)
+    {
+        var message = Marshal.PtrToStringUTF8(messageChars);
+        if (message != null)
+        {
+            serverLogs.Add(message);
+            serverLogListView?.SetNeedsDisplay();
+        }
+    }
+
+    [UnmanagedCallersOnly(EntryPoint = "stop_console")]
+    public static void StopConsole()
+    {
+        Application.Shutdown();
+        shutdownCallback?.Invoke();
     }
 }

@@ -124,7 +124,6 @@ int main(int argc, char* argv[])
         sleep(1);
     }
 
-
     // Shutdown
     curl_global_cleanup();
     pthread_exit(NULL);
