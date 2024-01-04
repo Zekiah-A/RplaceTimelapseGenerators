@@ -51,6 +51,7 @@ void init_work_queue(struct main_thread_queue* queue, size_t capacity)
     queue->work = (struct main_thread_work*) malloc(sizeof(struct main_thread_work) * capacity);
     if (!queue->work)
     {
+        stop_console();
         fprintf(stderr, "Failed to initialise main thread work queue\n");
         exit(EXIT_FAILURE);
     }
@@ -69,6 +70,7 @@ void push_work_queue(struct main_thread_queue* queue, struct main_thread_work wo
     // Check for queue overflow
     if ((queue->rear + 1) % queue->capacity == queue->front)
     {
+        stop_console();
         fprintf(stderr, "Error - Work queue overflow.\n");
         pthread_mutex_unlock(&queue->mutex);
         exit(EXIT_FAILURE);
@@ -89,6 +91,7 @@ struct main_thread_work pop_work_queue(struct main_thread_queue* queue)
     // Check underflow
     if (queue->front == queue->rear)
     {
+        stop_console();
         fprintf(stderr, "Error - Work queue underflow.\n");
         pthread_mutex_unlock(&queue->mutex);
         exit(EXIT_FAILURE);
@@ -178,7 +181,7 @@ void push_download_stack(struct canvas_info result)
     if (download_stack_top > STACK_SIZE_MAX - 1)
     {
         stop_console();
-        fprintf(stderr, "Error - Download stack overflow occurred\n");
+        fprintf(stderr, "Error - download_stack overflow occurred\n");
         exit(EXIT_FAILURE);
     }
 }
@@ -192,7 +195,7 @@ void push_render_stack(struct downloaded_result result)
     if (render_stack_top > STACK_SIZE_MAX - 1)
     {
         stop_console();
-        fprintf(stderr, "Error - Download stack overflow occurred\n");
+        fprintf(stderr, "Error - render_stack overflow occurred\n");
         exit(EXIT_FAILURE);
     }
 }
@@ -206,7 +209,7 @@ void push_save_stack(struct render_result result)
     if (save_stack_top > STACK_SIZE_MAX - 1)
     {
         stop_console();
-        fprintf(stderr, "Error - Download stack overflow occurred\n");
+        fprintf(stderr, "Error - push_stack overflow occurred\n");
         exit(EXIT_FAILURE);
     }
 }
@@ -238,6 +241,7 @@ void start_generation()
     FILE* file = fopen("commit_hashes.txt", "r");
     if (file == NULL)
     {
+        stop_console();
         fprintf(stderr, "\x1b[1;31mError, could not locate canvas 1 hashes file (commit_hashes.txt)\n");
         exit(EXIT_FAILURE);
     }
@@ -319,6 +323,7 @@ void start_generation()
         }
         else
         {
+            stop_console();
             fprintf(stderr, "(Line %d:%s) Failed to read commit hashes, invalid character\n", line_index, line);
             exit(EXIT_FAILURE);
         }
