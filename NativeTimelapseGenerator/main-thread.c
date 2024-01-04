@@ -175,8 +175,9 @@ void push_download_stack(struct canvas_info result)
     download_stack[download_stack_top] = result;
     download_stack_top++;
 
-    if (download_stack_top > STACK_SIZE_MAX)
+    if (download_stack_top > STACK_SIZE_MAX - 1)
     {
+        stop_console();
         fprintf(stderr, "Error - Download stack overflow occurred\n");
         exit(EXIT_FAILURE);
     }
@@ -188,8 +189,9 @@ void push_render_stack(struct downloaded_result result)
     render_stack[render_stack_top] = result;
     render_stack_top++;
 
-    if (render_stack_top > STACK_SIZE_MAX)
+    if (render_stack_top > STACK_SIZE_MAX - 1)
     {
+        stop_console();
         fprintf(stderr, "Error - Download stack overflow occurred\n");
         exit(EXIT_FAILURE);
     }
@@ -201,8 +203,9 @@ void push_save_stack(struct render_result result)
     save_stack[save_stack_top] = result;
     save_stack_top++;
 
-    if (save_stack_top > STACK_SIZE_MAX)
+    if (save_stack_top > STACK_SIZE_MAX - 1)
     {
+        stop_console();
         fprintf(stderr, "Error - Download stack overflow occurred\n");
         exit(EXIT_FAILURE);
     }
@@ -260,12 +263,13 @@ void start_generation()
         {
             if (expect != EXPECT_COMMIT_LINE)
             {
+                log_message("(Line %d:%s) expected Commit property, skipping", line_index, line);
                 continue;
             }
             
-            int hash_len = strlen(result) - 8;
+            int hash_len = strlen(result) - 9;
             char* commit_hash = malloc(hash_len + 1);
-            strcpy(commit_hash, result + 8);
+            strcpy(commit_hash, result + 9);
             new_canvas_info.commit_hash = commit_hash;
             const char* raw_url = "https://raw.githubusercontent.com/rslashplace2/rslashplace2.github.io/%s/place";
             int url_length = snprintf(NULL, 0, raw_url, commit_hash);
@@ -278,15 +282,18 @@ void start_generation()
         {
             if (expect != EXPECT_AUTHOR_LINE)
             {
+                log_message("(Line %d:%s) expected Author property, skipping", line_index, line);
                 continue;
             }
 
             char* author = result + 8;
+            result[strlen(result) - 1] = '\0';
             if (strcmp(author, "root") != 0 && strcmp(author, "nebulus") != 0)
             {
                 // Ignore this commit, it is not a canvas push
                 expect = EXPECT_COMMIT_LINE;
                 memset(&new_canvas_info, 0, sizeof(struct canvas_info)); // Wipe for reuse
+                continue;
             }
             expect = EXPECT_DATE_LINE;
         }
@@ -294,12 +301,13 @@ void start_generation()
         {
             if (expect != EXPECT_DATE_LINE)
             {
+                log_message("(Line %d:%s) expected Date property, skipping", line_index, line);
                 continue;
             }
 
-            int date_len = strlen(result) - 6;
+            int date_len = strlen(result) - 7;
             char* date = malloc(date_len + 1);
-            strcpy(date, result + 6);
+            strcpy(date, result + 7);
             time_t date_int = strtoull(date, NULL, 10);
             new_canvas_info.date = date_int;
             free(date);
@@ -311,7 +319,7 @@ void start_generation()
         }
         else
         {
-            fprintf(stderr, "(Line %d) Failed to read commit hashes, invalid character\n", line_index);
+            fprintf(stderr, "(Line %d:%s) Failed to read commit hashes, invalid character\n", line_index, line);
             exit(EXIT_FAILURE);
         }
     }

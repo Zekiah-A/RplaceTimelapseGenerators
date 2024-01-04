@@ -22,8 +22,8 @@ void ui_start_generation()
 // We still in UI thread, must pass back to main thread
 void ui_stop_generation()
 {
-    puts("UI requested generation halts"); 
-}
+    printf("Generator CLI application halted. Application will terminate immediately\n");
+ }
 
 void* start_console(void* data)
 {
@@ -38,12 +38,13 @@ void* start_console(void* data)
 
     handle = dlopen(lib_path, RTLD_LAZY);
     start_console_cli = dlsym(handle, "start_console");
-    if (start_console_cli == NULL)
+    log_message_cli = dlsym(handle, "log_message");
+    stop_console_cli = dlsym(handle, "stop_console");
+    if (start_console_cli == NULL || log_message_cli == NULL || stop_console_cli == NULL)
     {
-        puts("Error - Start console library couldn't be loaded!");
+        fprintf(stderr, "Error - Start console library couldn't be loaded! Method binding failed\n");
         exit(EXIT_FAILURE);
     }
-    log_message_cli = dlsym(handle, "log_message");
 
     start_console_cli(&ui_start_generation, &ui_stop_generation);
     return NULL;
