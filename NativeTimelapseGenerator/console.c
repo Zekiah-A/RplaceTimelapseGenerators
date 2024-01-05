@@ -17,7 +17,7 @@ typedef void (*stop_console_delegate)();
 // NAME: update_worker_stats
 typedef void (*update_worker_stats_delegate)(int, int);
 // NAME: update_backups_stats
-typedef void (*update_backups_delegate)(int, int, struct canvas_info);
+typedef void (*update_backups_delegate)(int, float, struct canvas_info);
 
 void* handle = NULL;
 start_console_delegate start_console_cli = NULL;
@@ -146,7 +146,7 @@ void update_worker_stats(int worker_step, int count)
     }
 }
 
-void update_backups_stats(int backups_total, int backups_per_second, struct canvas_info current_info)
+void update_backups_stats(int backups_total, float backups_per_second, struct canvas_info current_info)
 {
     if (update_backups_stats_cli != NULL)
     {
@@ -154,9 +154,9 @@ void update_backups_stats(int backups_total, int backups_per_second, struct canv
     }
     else
     {
-        int print_length = snprintf(NULL, 0, "backups_stats: %d %d %li", backups_total, backups_per_second, current_info.date);
+        int print_length = snprintf(NULL, 0, "backups_stats: %d %f %li", backups_total, backups_per_second, current_info.date);
         char* print = (char*)malloc(print_length + 1);
-        snprintf(print, print_length + 1, "backups_stats: %d %d %li", backups_total, backups_per_second, current_info.date);
+        snprintf(print, print_length + 1, "backups_stats: %d %f %li", backups_total, backups_per_second, current_info.date);
         printf("%s\n", print);
         free(print);
     }

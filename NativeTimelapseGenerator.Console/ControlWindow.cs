@@ -350,17 +350,16 @@ static unsafe class StaticConsole
     }
 
     [UnmanagedCallersOnly(EntryPoint = "update_backups_stats")]
-    public static void UpdateBackupStats(int backupsTotal, int backupsPerSecond, NativeCanvasInfo currentInfo)
+    public static void UpdateBackupStats(int backupsTotal, float backupsPerSecond, NativeCanvasInfo currentInfo)
     {
         var date = DateTimeOffset.FromUnixTimeSeconds(currentInfo.Date);
-
         if (backupsTotalLabel != null)
         {
             backupsTotalLabel.Text = backupsTotal.ToString();
         }
         if (backupsPsLabel != null)
         {
-            backupsPsLabel.Text = backupsPerSecond.ToString();
+            backupsPsLabel.Text = backupsPerSecond.ToString("0.000");
         }
         if (currentDateLabel != null)
         {

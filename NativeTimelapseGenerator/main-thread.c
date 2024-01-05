@@ -291,7 +291,7 @@ void push_completed_frame(struct canvas_info info)
 void collect_backup_stats()
 {
     time_t current_time = time(0);
-    int backups_per_second = (current_time - completed_backups_date) / completed_backups_since;
+    float backups_per_second = ((float)(current_time - completed_backups_date)) / (float) completed_backups_since;
     update_backups_stats(completed_backups, backups_per_second, *completed_canvas_info);
     completed_backups_since = 0;
     completed_backups_date = current_time;
@@ -410,6 +410,9 @@ void* read_commit_hashes(FILE* file)
     while ((result = fgets(line, MAX_HASHES_LINE_LEN, file)) != NULL)
     {
         line_index++;
+        int result_len = strlen(result); // strip \n
+        result[--result_len] = '\0';
+
         // Comment or ignore
         if (strlen(result) == 0 || result[0] == '#' || result[0] == '\n')
         {
@@ -424,10 +427,8 @@ void* read_commit_hashes(FILE* file)
                 continue;
             }
             
-            int result_len = strlen(result);
-            int hash_len = result_len - 9;
+            int hash_len = result_len - 8;
             char* commit_hash = malloc(hash_len + 1);
-            result[result_len - 1] = '\0';
             strcpy(commit_hash, result + 8);
             new_canvas_info.commit_hash = commit_hash;            
             expect = EXPECT_AUTHOR_LINE;
@@ -441,8 +442,6 @@ void* read_commit_hashes(FILE* file)
             }
 
             char* author = result + 8;
-            result[strlen(result) - 1] = '\0';
-
             // HACK: Use author to determine the repo URL of the backup
             const char* raw_url = "https://raw.githubusercontent.com/%s/%s/place";
             const char* raw_repo_part = NULL;
@@ -479,17 +478,30 @@ void* read_commit_hashes(FILE* file)
                 continue;
             }
 
-            int date_len = strlen(result) - 7;
+            int date_len = strlen(result) - 6;
             char* date = malloc(date_len + 1);
-            strcpy(date, result + 7);
+            strcpy(date, result + 6);
             time_t date_int = strtoull(date, NULL, 10);
             new_canvas_info.date = date_int;
+
+            // If we already have this backup rendered, discard
+            char save_path[256];
+            strcpy(save_path, "backups/");
+            strcat(save_path, date);
+            if (access(save_path, F_OK) != -1)
+            {
+                // This backup has already been rendered, just skip
+                log_message(LOG_HEADER"Skipping commit at date %li. Frame already exists in filesystem", date_int);
+                expect = EXPECT_COMMIT_LINE;
+                memset(&new_canvas_info, 0, sizeof(struct canvas_info)); // Wipe for reuse
+                continue;
+            }
             free(date);
 
+            // Commit data to download stack
             push_download_stack(new_canvas_info);
             memset(&new_canvas_info, 0, sizeof(struct canvas_info)); // Wipe for reuse
 
-            // Commit data to download stack
             if (download_stack_top >= STACK_SIZE_MAX - 1)
             {
                 // We will come back later
