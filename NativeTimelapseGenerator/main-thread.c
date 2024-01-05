@@ -271,6 +271,7 @@ void push_save_stack(struct render_result result)
 void push_completed_frame(struct canvas_info info)
 {
     struct canvas_info* heap_canvas_info = (struct canvas_info*) malloc(sizeof(struct canvas_info));
+    memcpy(heap_canvas_info, &info, sizeof(struct canvas_info));
 
     // Remove previous heap completed canvas info, finally frees the strings that both stack/heap versions of this uses
     if (completed_canvas_info != NULL)
@@ -483,6 +484,7 @@ void* read_commit_hashes(FILE* file)
             strcpy(date, result + 7);
             time_t date_int = strtoull(date, NULL, 10);
             new_canvas_info.date = date_int;
+            log_message("DATE WAS FOUND AS %li", date_int);
             free(date);
 
             push_download_stack(new_canvas_info);

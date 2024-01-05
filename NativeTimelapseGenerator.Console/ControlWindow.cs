@@ -3,18 +3,16 @@ using Terminal.Gui;
 using System.Runtime.InteropServices;
 using NStack;
 
+
+[StructLayout(LayoutKind.Explicit, Size = 24)] // 64 bit platform
 unsafe struct NativeCanvasInfo
 {
+    [FieldOffset(0)]
     public IntPtr Url;
+    [FieldOffset(8)]
     public IntPtr CommitHash;
-    public int Date;
-}
-
-unsafe struct CanvasInfo
-{
-    public char* Url;
-    public char* CommitHash;
-    public int Date;
+    [FieldOffset(16)]
+    public long Date;
 }
 
 record struct WorkerInfo(string Name, int Count);
@@ -185,7 +183,7 @@ static unsafe class StaticConsole
         backupsTotalLabel = new Label("0")
         {
             Y = 0,
-            X = Pos.Right(downloadLabel),
+            X = Pos.Right(backupsTotal),
         };
         var backupsPs = new Label("Frames per second: ")
         {
@@ -195,7 +193,7 @@ static unsafe class StaticConsole
         backupsPsLabel = new Label("0")
         {
             Y = 1,
-            X = Pos.Right(renderLabel),
+            X = Pos.Right(backupsPs),
         };
         var currentDate = new Label("Current canvas date: ")
         {
@@ -205,8 +203,9 @@ static unsafe class StaticConsole
         currentDateLabel = new Label("null")
         {
             Y = 2,
-            X = Pos.Right(saveLabel),
+            X = Pos.Right(currentDate),
         };
+        backupPanel.Add(backupsTotal, backupsTotalLabel, backupsPs, backupsPsLabel, currentDate, currentDateLabel);
 
         serverLogListView = new ListView(new Rect(0, 0, 128, 10), serverLogs)
         {
@@ -353,8 +352,6 @@ static unsafe class StaticConsole
     [UnmanagedCallersOnly(EntryPoint = "update_backups_stats")]
     public static void UpdateBackupStats(int backupsTotal, int backupsPerSecond, NativeCanvasInfo currentInfo)
     {
-        //var commitHash = Marshal.PtrToStringUTF8(currentInfo.CommitHash);
-        //var url = Marshal.PtrToStringUTF8(currentInfo.Url);
         var date = DateTimeOffset.FromUnixTimeSeconds(currentInfo.Date);
 
         if (backupsTotalLabel != null)
