@@ -6,6 +6,7 @@ struct canvas_info
 {
     char* url;
     char* commit_hash;
+    char* save_path;
     time_t date;
 };
 

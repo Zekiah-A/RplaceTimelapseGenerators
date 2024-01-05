@@ -279,6 +279,7 @@ void push_completed_frame(struct canvas_info info)
         // TODO: Investigate segfault
         /*free(completed_canvas_info->url);
         free(completed_canvas_info->commit_hash);
+        free(completed_canvas_info->save_path);
         free(completed_canvas_info);*/
     }
 
@@ -481,17 +482,19 @@ void* read_commit_hashes(FILE* file)
             int date_len = strlen(result) - 6;
             char* date = malloc(date_len + 1);
             strcpy(date, result + 6);
-            time_t date_int = strtoull(date, NULL, 10);
+            time_t date_int = strtoll(date, NULL, 10);
             new_canvas_info.date = date_int;
 
-            // If we already have this backup rendered, discard
-            char save_path[256];
+            char* save_path = malloc(8 + strlen(date) + 4 + 1);
             strcpy(save_path, "backups/");
             strcat(save_path, date);
+            strcat(save_path, ".png");
+            new_canvas_info.save_path = save_path;
+
+            // If we already have this backup rendered, discard
             if (access(save_path, F_OK) != -1)
             {
                 // This backup has already been rendered, just skip
-                log_message(LOG_HEADER"Skipping commit at date %li. Frame already exists in filesystem", date_int);
                 expect = EXPECT_COMMIT_LINE;
                 memset(&new_canvas_info, 0, sizeof(struct canvas_info)); // Wipe for reuse
                 continue;

@@ -4,7 +4,7 @@ using System.Runtime.InteropServices;
 using NStack;
 
 
-[StructLayout(LayoutKind.Explicit, Size = 24)] // 64 bit platform
+[StructLayout(LayoutKind.Explicit, Size = 32)] // 64 bit platform
 unsafe struct NativeCanvasInfo
 {
     [FieldOffset(0)]
@@ -12,6 +12,8 @@ unsafe struct NativeCanvasInfo
     [FieldOffset(8)]
     public IntPtr CommitHash;
     [FieldOffset(16)]
+    public IntPtr SavePath;
+    [FieldOffset(24)]
     public long Date;
 }
 
