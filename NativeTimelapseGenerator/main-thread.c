@@ -449,9 +449,6 @@ void* read_commit_hashes(FILE* file)
             if (strcmp(author, "root") == 0)
             {
                 raw_repo_part = "rslashplace2/rslashplace2.github.io";
-                int url_length = snprintf(NULL, 0, raw_url, raw_repo_part, new_canvas_info.commit_hash);
-                char* url = (char*) malloc(url_length + 1);
-                snprintf(url, url_length + 1, raw_url, raw_repo_part, new_canvas_info.commit_hash);
             }
             else if (strcmp(author, "nebulus") == 0)
             {
@@ -505,7 +502,7 @@ void* read_commit_hashes(FILE* file)
             push_download_stack(new_canvas_info);
             memset(&new_canvas_info, 0, sizeof(struct canvas_info)); // Wipe for reuse
 
-            if (download_stack_top >= STACK_SIZE_MAX - 1)
+            if (download_stack_top >= STACK_SIZE_MAX - 4) // HACK: -4 For some reaason it still overflows and adds too many. Concurrency bug?
             {
                 // We will come back later
                 log_message(LOG_HEADER"Bufferred %d commit records into download stack. Pausing until needs replenish", download_stack_top + 1);
