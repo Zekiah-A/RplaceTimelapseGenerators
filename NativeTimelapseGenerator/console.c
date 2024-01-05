@@ -99,7 +99,6 @@ void stop_console()
     else
     {
         fprintf(stderr, "Error - Could not stop console CLI. Method was null\n");
-        exit(EXIT_FAILURE);
     }
 }
 

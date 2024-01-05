@@ -47,7 +47,7 @@ int save_worker_top = -1;
 time_t completed_backups_date = 0;
 int completed_backups_since = 0;
 int completed_backups = 0;
-struct canvas_info* completed_canvas_info;
+struct canvas_info* completed_canvas_info = NULL;
 
 bool work_queue_replenished = false;
 pthread_mutex_t download_pop_mutex;
@@ -275,9 +275,10 @@ void push_completed_frame(struct canvas_info info)
     // Remove previous heap completed canvas info, finally frees the strings that both stack/heap versions of this uses
     if (completed_canvas_info != NULL)
     {
-        free(completed_canvas_info->url);
+        // TODO: Investigate segfault
+        /*free(completed_canvas_info->url);
         free(completed_canvas_info->commit_hash);
-        free(completed_canvas_info);
+        free(completed_canvas_info);*/
     }
 
     completed_backups++;
@@ -558,7 +559,7 @@ void safe_segfault_exit(int sig_num)
 {
     sleep(1);
     stop_console();
-    fprintf(stderr, "FATAL - Segmantation fault\n");
+    fprintf(stderr, "Fatal - Segmentation fault\n");
     exit(EXIT_FAILURE);
 }
 
