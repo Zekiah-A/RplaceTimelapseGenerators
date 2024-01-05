@@ -55,23 +55,23 @@ uint8_t default_palette[32][3] = {
 
 struct render_result generate_canvas_image(int width, int height, uint8_t* board)
 {
-    struct render_result gen_result = { .error = GENERATION_ERROR_NONE, .error_msg = NULL };
+    struct render_result result = { .error = GENERATION_ERROR_NONE, .error_msg = NULL };
     png_structp png_ptr = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
     if (png_ptr == NULL)
     {
-        gen_result.error = GENERATION_FAIL_DRAW;
-        gen_result.error_msg = strdup("PNG create write struct failed. png_ptr was null");
+        result.error = GENERATION_FAIL_DRAW;
+        result.error_msg = strdup("PNG create write struct failed. png_ptr was null");
         png_destroy_write_struct(&png_ptr, NULL);
-        return gen_result;
+        return result;
     }
 
     png_infop info_ptr = png_create_info_struct(png_ptr);
     if (info_ptr == NULL)
     {
-        gen_result.error = GENERATION_FAIL_DRAW;
-        gen_result.error_msg = strdup("PNG create info struct failed. info_ptr was null");
+        result.error = GENERATION_FAIL_DRAW;
+        result.error_msg = strdup("PNG create info struct failed. info_ptr was null");
         png_destroy_write_struct(&png_ptr, NULL);
-        return gen_result;
+        return result;
     }
 
     char* stream_buffer = NULL;
@@ -90,7 +90,7 @@ struct render_result generate_canvas_image(int width, int height, uint8_t* board
         for (int j = 0; j < width; j++) {
             int index = i * width + j;
             for (int p = 0; p < 3; p++) {
-                row_pointers[i][3 * j] = default_palette[board[i]][p]; // colour
+                row_pointers[i][3 * j + p] = default_palette[board[i]][p]; // colour
             }
         }
     }
@@ -106,9 +106,9 @@ struct render_result generate_canvas_image(int width, int height, uint8_t* board
     fclose(memory_stream);
     png_destroy_write_struct(&png_ptr, &info_ptr);
     
-    gen_result.data = (uint8_t*) stream_buffer;
-    gen_result.length = stream_length;
-    return gen_result;
+    result.data = (uint8_t*) stream_buffer;
+    result.length = stream_length;
+    return result;
 }
 
 void* start_render_worker(void* data)

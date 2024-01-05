@@ -347,12 +347,7 @@ void* read_commit_hashes(FILE* file)
             char* commit_hash = malloc(hash_len + 1);
             result[result_len - 1] = '\0';
             strcpy(commit_hash, result + 8);
-            new_canvas_info.commit_hash = commit_hash;
-            const char* raw_url = "https://raw.githubusercontent.com/rslashplace2/rslashplace2.github.io/%s/place";
-            int url_length = snprintf(NULL, 0, raw_url, commit_hash);
-            char* url = (char*) malloc(url_length + 1);
-            snprintf(url, url_length + 1, raw_url, commit_hash); // + 1?
-            new_canvas_info.url = url;
+            new_canvas_info.commit_hash = commit_hash;            
             expect = EXPECT_AUTHOR_LINE;
         }
         else if (strncmp(result, "Author: ", 8) == 0)
@@ -365,13 +360,33 @@ void* read_commit_hashes(FILE* file)
 
             char* author = result + 8;
             result[strlen(result) - 1] = '\0';
-            if (strcmp(author, "root") != 0 && strcmp(author, "nebulus") != 0)
+            
+            // HACK: Use author to determine the repo URL of the backup
+            const char* raw_url = "https://raw.githubusercontent.com/%s/%s/place";
+            const char* raw_repo_part = NULL;
+            if (strcmp(author, "root") == 0)
+            {
+                raw_repo_part = "rslashplace2/rslashplace2.github.io";
+                int url_length = snprintf(NULL, 0, raw_url, raw_repo_part, new_canvas_info.commit_hash);
+                char* url = (char*) malloc(url_length + 1);
+                snprintf(url, url_length + 1, raw_url, raw_repo_part, new_canvas_info.commit_hash);
+            }
+            else if (strcmp(author, "nebulus") == 0)
+            {
+                raw_repo_part = "rplacetk/canvas1";
+            }
+            else
             {
                 // Ignore this commit, it is not a canvas push
                 expect = EXPECT_COMMIT_LINE;
                 memset(&new_canvas_info, 0, sizeof(struct canvas_info)); // Wipe for reuse
                 continue;
             }
+
+            int url_length = snprintf(NULL, 0, raw_url, raw_repo_part, new_canvas_info.commit_hash);
+            char* url = (char*) malloc(url_length + 1);
+            snprintf(url, url_length + 1, raw_url, raw_repo_part, new_canvas_info.commit_hash); 
+            new_canvas_info.url = url;
             expect = EXPECT_DATE_LINE;
         }
         else if (strncmp(result, "Date: ", 6) == 0)

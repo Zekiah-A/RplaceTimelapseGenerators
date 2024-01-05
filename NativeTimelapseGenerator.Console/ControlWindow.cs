@@ -50,6 +50,20 @@ static unsafe class StaticConsole
             Child = serverLogListView
         };
 
+        var clearBtn = new Button()
+        {
+            Text = "Clear",
+            Y = Pos.AnchorEnd() - 12,
+            X = Pos.AnchorEnd() - 12,
+        };
+        clearBtn.Clicked += () =>
+        {
+            lock (serverLogsLock)
+            {
+                serverLogs.Clear();
+            }
+        };
+
         var shutdownBtn = new Button()
         {
             Text = "Shutdown",
@@ -74,7 +88,7 @@ static unsafe class StaticConsole
             MessageBox.Query("Start", "Starting backups generation", "Okay");
             startCallback?.Invoke();
         };
-        window.Add(shutdownBtn, startBtn, serverLogPanel);
+        window.Add(shutdownBtn, startBtn, serverLogPanel, clearBtn);
 
         AppDomain.CurrentDomain.UnhandledException += (sender, args) =>
         {
@@ -101,12 +115,12 @@ static unsafe class StaticConsole
         var message = Marshal.PtrToStringUTF8(messageChars);
         if (message != null)
         {
-            List<string> chunks = SplitChunks(message, 64);
+            var chunks = SplitChunks(message, 64);
             try
             {
                 lock (serverLogsLock)
                 {
-                    for (var i = 0; i < chunks.Count; i++)
+                    for (var i = 0; i < chunks.Length; i++)
                     {
                         var chunk = chunks[i];
                         if (i != 0)
@@ -126,11 +140,23 @@ static unsafe class StaticConsole
         }
     }
 
-    static List<string> SplitChunks(string input, int chunkSize)
+    static string[] SplitChunks(string input, int chunkSize)
     {
-        return Enumerable.Range(0, input.Length / chunkSize)
-            .Select(i => input.Substring(i * chunkSize, chunkSize))
-            .ToList();
+        int divResult = Math.DivRem(input.Length, chunkSize, out var remainder);
+    
+        int chunkCount = remainder > 0 ? divResult + 1 : divResult;
+        var result = new string[chunkCount];
+    
+        int i = 0;
+        while (i < chunkCount - 1)
+        {
+            result[i] = input.Substring(i * chunkSize, chunkSize);
+            i++;
+        }
+    
+        int lastChunkSize = remainder > 0 ? remainder : chunkSize;
+        result[i] = input.Substring(i * chunkSize, lastChunkSize);
+        return result;
     }
 
     [UnmanagedCallersOnly(EntryPoint = "stop_console")]
