@@ -167,7 +167,7 @@ static unsafe class StaticConsole
         var backupPanel = new View()
         {
             Y = 4,
-            X = Pos.Percent(50),
+            X = Pos.Percent(50) + 2,
             Height = 4,
             Width = Dim.Percent(50) - 2,
             Border = new Border()
@@ -239,7 +239,7 @@ static unsafe class StaticConsole
                 serverLogs.Clear();
             }
         };
-        window.Add(shutdownBtn, startBtn, workerPanel, serverLogPanel, clearBtn);
+        window.Add(shutdownBtn, startBtn, workerPanel, backupPanel, serverLogPanel, clearBtn);
 
         AppDomain.CurrentDomain.UnhandledException += (sender, args) =>
         {

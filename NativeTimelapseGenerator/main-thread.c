@@ -49,7 +49,7 @@ int completed_backups_since = 0;
 int completed_backups = 0;
 struct canvas_info* completed_canvas_info;
 
-pthread_mutex_t work_wait_mutex;
+bool work_queue_replenished = false;
 pthread_mutex_t download_pop_mutex;
 bool download_stack_replenished = false;
 pthread_mutex_t render_pop_mutex;
@@ -91,9 +91,9 @@ void push_work_queue(struct main_thread_queue* queue, struct main_thread_work wo
     // Enqueue the message
     queue->work[queue->rear] = work;
     queue->rear = (queue->rear + 1) % queue->capacity;
-
+    
+    work_queue_replenished = true;
     pthread_mutex_unlock(&queue->mutex);
-    pthread_mutex_unlock(&work_wait_mutex); 
 }
 
 struct main_thread_work pop_work_queue(struct main_thread_queue* queue)
@@ -288,10 +288,11 @@ void push_completed_frame(struct canvas_info info)
 // Called by save worker on main thread, will forward collected info to UI thread
 void collect_backup_stats()
 {
-    int backups_per_second = (time(0) - completed_backups_date) / completed_backups_since;
+    time_t current_time = time(0);
+    int backups_per_second = (current_time - completed_backups_date) / completed_backups_since;
     update_backups_stats(completed_backups, backups_per_second, *completed_canvas_info);
     completed_backups_since = 0;
-    completed_backups_date = time(0);
+    completed_backups_date = current_time;
 }
 
 // Forward declarations
@@ -561,26 +562,32 @@ void safe_segfault_exit(int sig_num)
     exit(EXIT_FAILURE);
 }
 
-void start_main_thread()
+void start_main_thread(bool start)
 {
     signal(SIGSEGV, safe_segfault_exit);
     curl_global_init(CURL_GLOBAL_DEFAULT);
     completed_backups_date = time(0);
 
     init_work_queue(&work_queue, MAIN_THREAD_QUEUE_SIZE);
-    pthread_mutex_init(&work_wait_mutex, NULL);
     pthread_mutex_init(&download_pop_mutex, NULL);
     pthread_mutex_init(&render_pop_mutex, NULL);
     pthread_mutex_init(&save_pop_mutex, NULL);
 
-    pthread_mutex_lock(&work_wait_mutex);
+    if (start)
+    {
+        start_generation();
+    }
     while (1)
     {
         // Will wait for work to arrive via work queue, at which point
-        // it will unlock and main thread will pop & process work
-        pthread_mutex_lock(&work_wait_mutex);
+        // main thread will pop & process work
+        while (!work_queue_replenished)
+        {
+            usleep(1000);
+        }
+        work_queue_replenished = false;
+
         struct main_thread_work work = pop_work_queue(&work_queue);
         work.func(work.data);
     }
-    
 }

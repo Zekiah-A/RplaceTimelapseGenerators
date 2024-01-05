@@ -4,9 +4,10 @@
 #include <stddef.h>
 #include <time.h>
 #include "canvas-saver.h"
+#include <stdbool.h>
 
 // Call from main thread only
-void start_main_thread();
+void start_main_thread(bool start_generation);
 
 typedef void (*WorkFunction)(void*);
 

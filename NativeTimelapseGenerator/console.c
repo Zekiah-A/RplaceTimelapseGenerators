@@ -92,7 +92,15 @@ void* start_console(void* data)
 
 void stop_console()
 {
-    stop_console_cli();
+    if (stop_console_cli != NULL)
+    {
+        stop_console_cli();
+    }
+    else
+    {
+        fprintf(stderr, "Error - Could not stop console CLI. Method was null\n");
+        exit(EXIT_FAILURE);
+    }
 }
 
 void log_message(const char* format, ...)
@@ -113,8 +121,11 @@ void log_message(const char* format, ...)
     }
     else
     {
-        fprintf(stderr, "Error - log_message CLI method is null\n");
-        exit(EXIT_FAILURE);
+        size_t print_size = strlen(buffer) + strlen("log_message: ") + 1;
+        char* print = (char*)malloc(print_size);
+        snprintf(print, print_size, "log_message: %s", buffer);
+        puts(print);
+        free(print);
     }
 
     free(buffer);
@@ -128,8 +139,11 @@ void update_worker_stats(int worker_step, int count)
     }
     else
     {
-        fprintf(stderr, "Error - update_worker_stats CLI method is null\n");
-        exit(EXIT_FAILURE);
+        int print_length = snprintf(NULL, 0, "worker_stats: %d %d", worker_step, count);
+        char* print = (char*)malloc(print_length + 1);
+        snprintf(print, print_length + 1, "worker_stats: %d %d", worker_step, count);
+        printf("%s\n", print);
+        free(print);
     }
 }
 
@@ -141,7 +155,10 @@ void update_backups_stats(int backups_total, int backups_per_second, struct canv
     }
     else
     {
-        fprintf(stderr, "Error - update_backups_stats CLI method is null\n");
-        exit(EXIT_FAILURE);
+        int print_length = snprintf(NULL, 0, "backups_stats: %d %d %li", backups_total, backups_per_second, current_info.date);
+        char* print = (char*)malloc(print_length + 1);
+        snprintf(print, print_length + 1, "backups_stats: %d %d %li", backups_total, backups_per_second, current_info.date);
+        printf("%s\n", print);
+        free(print);
     }
 }
