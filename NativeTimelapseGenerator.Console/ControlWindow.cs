@@ -11,6 +11,8 @@ static unsafe class StaticConsole
     private static Callback? startCallback = null;
     private static List<string> serverLogs = new List<string>();
     private static ListView? serverLogListView = null;
+    private static readonly object serverLogsLock = new object();
+
 
     [UnmanagedCallersOnly(EntryPoint = "start_console")]
     public static void StartConsole(IntPtr startCallbackPtr, IntPtr shutdownCallbackPtr)
@@ -73,7 +75,24 @@ static unsafe class StaticConsole
             startCallback?.Invoke();
         };
         window.Add(shutdownBtn, startBtn, serverLogPanel);
-        Application.Run();
+
+        AppDomain.CurrentDomain.UnhandledException += (sender, args) =>
+        {
+            lock (serverLogsLock)
+            {
+                serverLogs.Add("[ui] Error - " + args.ToString());
+                serverLogListView?.SetNeedsDisplay();
+            }
+        };
+
+        try
+        {
+            Application.Run();
+        }
+        catch (Exception error)
+        {
+            File.AppendAllText("logs.txt", $"\n{DateTime.Now} Error while running UI application, {error}");
+        }
     }
 
     [UnmanagedCallersOnly(EntryPoint = "log_message")]
@@ -82,15 +101,32 @@ static unsafe class StaticConsole
         var message = Marshal.PtrToStringUTF8(messageChars);
         if (message != null)
         {
-            serverLogs.Add(message);
-            serverLogListView?.SetNeedsDisplay();
+            try
+            {
+                lock (serverLogsLock)
+                {
+                    serverLogs.Add(message);
+                    serverLogListView?.SetNeedsDisplay();
+                }
+            }
+            catch (Exception error)
+            {
+                File.AppendAllText("logs.txt", $"\n{DateTime.Now} Error while adding UI server log, {error}");
+            }
         }
     }
 
     [UnmanagedCallersOnly(EntryPoint = "stop_console")]
     public static void StopConsole()
     {
-        Application.Shutdown();
+        try
+        {
+            Application.Shutdown();
+        }
+        catch (Exception error)
+        {
+            File.AppendAllText("logs.txt", $"\n{DateTime.Now} Error while shutting down UI application, {error}");
+        }
         shutdownCallback?.Invoke();
     }
 }

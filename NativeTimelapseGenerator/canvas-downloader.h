@@ -1,15 +1,8 @@
 #pragma once
+#include "worker-structs.h"
 #include <curl/curl.h>
 #include <stdint.h>
-#include "worker-structs.h"
 
-struct downloaded_result
-{
-    int size;
-    uint8_t* data;
-    int error;
-    char* error_msg;
-};
 
 struct download_worker_data
 {

@@ -1,3 +1,5 @@
+#include <signal.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <png.h>
 #include <string.h>
@@ -13,21 +15,22 @@
 #include "main-thread.h"
 #include "canvas-saver.h"
 #include "worker-structs.h"
+#include <stdbool.h>
 
 // Reads canvas list, manages jobs for workers
 #define LOG_HEADER "[main thread] "
 
 // SHARED BETWEEN-WORKER MEMORY
-#define STACK_SIZE_MAX 128
-#define DEFAULT_DOWNLOAD_WORKER_COUNT 2
+#define STACK_SIZE_MAX 256
+#define DEFAULT_DOWNLOAD_WORKER_COUNT 3
 struct canvas_info download_stack[STACK_SIZE_MAX];
-int download_stack_top = 0;
-#define DEFAULT_RENDER_WORKER_COUNT 4
+int download_stack_top = -1;
+#define DEFAULT_RENDER_WORKER_COUNT 3
 struct downloaded_result render_stack[STACK_SIZE_MAX];
-int render_stack_top = 0;
-#define DEFAULT_SAVE_WORKER_COUNT 2
+int render_stack_top = -1;
+#define DEFAULT_SAVE_WORKER_COUNT 1
 struct render_result save_stack[STACK_SIZE_MAX];
-int save_stack_top = 0;
+int save_stack_top = -1;
 
 // WORKER THREADS
 #define WORKER_MAX 100
@@ -44,6 +47,12 @@ int backups_finished = 0;
 char backups_dir[256];
 
 pthread_mutex_t work_wait_mutex;
+pthread_mutex_t download_pop_mutex;
+bool download_stack_replenished = false;
+pthread_mutex_t render_pop_mutex;
+bool render_stack_replenished = false;
+pthread_mutex_t save_pop_mutex;
+bool save_stack_replenished = false;
 
 // Private
 void init_work_queue(struct main_thread_queue* queue, size_t capacity)
@@ -135,6 +144,7 @@ void add_download_worker()
 {
     pthread_t thread_id;
     struct worker_info* info = (struct worker_info*) malloc(sizeof(struct worker_info));
+    info->worker_id = download_worker_count;
     pthread_create(&thread_id, NULL, start_download_worker, info);
     info->thread_id = thread_id;
     download_workers[download_worker_count] = info;
@@ -145,6 +155,7 @@ void add_render_worker()
 {
     pthread_t thread_id;
     struct worker_info* info = (struct worker_info*) malloc(sizeof(struct worker_info));
+    info->worker_id = render_worker_count;
     pthread_create(&thread_id, NULL, start_render_worker, info);
     info->thread_id = thread_id;
     render_workers[render_worker_count] = info;
@@ -155,6 +166,7 @@ void add_save_worker()
 {
     pthread_t thread_id;
     struct worker_info* info = (struct worker_info*) malloc(sizeof(struct worker_info));
+    info->worker_id = save_worker_count;
     pthread_create(&thread_id, NULL, start_save_worker, info);
     info->thread_id = thread_id;
     save_workers[save_worker_count] = info;
@@ -175,10 +187,10 @@ void main_thread_post(struct main_thread_work work)
 // Called by main thread
 void push_download_stack(struct canvas_info result)
 {
-    download_stack[download_stack_top] = result;
-    download_stack_top++;
+    download_stack[++download_stack_top] = result;
+    download_stack_replenished = true;
 
-    if (download_stack_top > STACK_SIZE_MAX - 1)
+    if (download_stack_top >= STACK_SIZE_MAX)
     {
         stop_console();
         fprintf(stderr, "Error - download_stack overflow occurred\n");
@@ -189,8 +201,8 @@ void push_download_stack(struct canvas_info result)
 // Called by download worker
 void push_render_stack(struct downloaded_result result)
 {
-    render_stack[render_stack_top] = result;
-    render_stack_top++;
+    render_stack[++render_stack_top] = result;
+    render_stack_replenished = true;
 
     if (render_stack_top > STACK_SIZE_MAX - 1)
     {
@@ -203,8 +215,8 @@ void push_render_stack(struct downloaded_result result)
 // Called by render worker
 void push_save_stack(struct render_result result)
 {
-    save_stack[save_stack_top] = result;
-    save_stack_top++;
+    save_stack[++save_stack_top] = result;
+    save_stack_replenished = true;
 
     if (save_stack_top > STACK_SIZE_MAX - 1)
     {
@@ -212,6 +224,89 @@ void push_save_stack(struct render_result result)
         fprintf(stderr, "Error - push_stack overflow occurred\n");
         exit(EXIT_FAILURE);
     }
+}
+
+// Forward declarations
+void* read_commit_hashes(FILE* file);
+FILE* commit_hashes_stream = NULL;
+
+// Called by download worker
+struct canvas_info pop_download_stack(int worker_id)
+{
+    pthread_mutex_lock(&download_pop_mutex);
+
+    if (download_stack_top < STACK_SIZE_MAX / 2)
+    {
+        // Replenish, we assume download will take long enough, and read will be fast to not cause issues
+        main_thread_post((struct main_thread_work) { .func = (void (*)(void *))read_commit_hashes, .data=commit_hashes_stream });
+    }
+    if (download_stack_top == 0)
+    {
+        log_message(LOG_HEADER"Download worker %d waiting on canvas_info from download stack...", worker_id);
+        while (!download_stack_replenished)
+        {
+            usleep(1000);
+        }
+        download_stack_replenished = false;
+    }
+    else if (download_stack_top < 0)
+    {
+        stop_console();
+        fprintf(stderr, "Error - download_stack underflow occurred\n");
+        exit(EXIT_FAILURE);
+    }
+
+    struct canvas_info result = download_stack[download_stack_top];
+    download_stack_top--;
+    
+    pthread_mutex_unlock(&download_pop_mutex);
+    return result;
+}
+
+// Called by render worker
+struct downloaded_result pop_render_stack(int worker_id)
+{
+    pthread_mutex_lock(&render_pop_mutex);
+
+    // Try and just wait for something to please come in
+    if (render_stack_top < 0)
+    {
+        log_message(LOG_HEADER"Render worker %d waiting on download_result from render stack...", worker_id);
+        while (!render_stack_replenished)
+        {
+            usleep(1000);
+        }
+        render_stack_replenished = false;
+    }
+
+    struct downloaded_result result = render_stack[render_stack_top];
+    render_stack_top--;
+    
+    pthread_mutex_unlock(&render_pop_mutex);
+    return result;
+}
+
+// Called by save worker
+struct render_result pop_save_stack(int worker_id)
+{
+    pthread_mutex_lock(&save_pop_mutex);
+
+    // Try and just wait for something to please come in
+    if (save_stack_top < 0)
+    {
+        log_message(LOG_HEADER"Save worker %d waiting on render_result from save stack...", worker_id);
+        while (!save_stack_replenished)
+        {
+            usleep(1000);
+        }
+        save_stack_replenished = false;
+    }
+
+    struct render_result result = save_stack[save_stack_top];
+    save_stack_top--;
+
+    pthread_mutex_unlock(&save_pop_mutex);
+    return result;
 }
 
 #define MAX_HASHES_LINE_LEN 256
@@ -227,33 +322,15 @@ void push_save_stack(struct render_result result)
 /*Commit: 49fdda2c4f38f7afd8af2c178b450e8f0fcae65b
 Author: nebulus
 Date: 1704298864*/
-
-// Start all workers, initiate rendering backups 
-void start_generation()
+// called by main thread
+void* read_commit_hashes(FILE* file)
 {
-    char hash[40];
-
-    // Setup backups dir variable
-    getcwd(backups_dir, sizeof(backups_dir));
-    strcat(backups_dir, "/backups/");
-    mkdir(backups_dir, 0755);
-
-    FILE* file = fopen("commit_hashes.txt", "r");
-    if (file == NULL)
-    {
-        stop_console();
-        fprintf(stderr, "\x1b[1;31mError, could not locate canvas 1 hashes file (commit_hashes.txt)\n");
-        exit(EXIT_FAILURE);
-    }
-
     int expect = EXPECT_COMMIT_LINE;
     long file_lines = flines(file);
     struct canvas_info new_canvas_info = {};
     char line[MAX_HASHES_LINE_LEN];
     char* result = NULL;
     int line_index = 0;
-    log_message(LOG_HEADER"Detected %d lines in commit_hashes.txt", file_lines);
-    
     while ((result = fgets(line, MAX_HASHES_LINE_LEN, file)) != NULL)
     {
         line_index++;
@@ -271,14 +348,16 @@ void start_generation()
                 continue;
             }
             
-            int hash_len = strlen(result) - 9;
+            int result_len = strlen(result);
+            int hash_len = result_len - 9;
             char* commit_hash = malloc(hash_len + 1);
-            strcpy(commit_hash, result + 9);
+            result[result_len - 1] = '\0';
+            strcpy(commit_hash, result + 8);
             new_canvas_info.commit_hash = commit_hash;
             const char* raw_url = "https://raw.githubusercontent.com/rslashplace2/rslashplace2.github.io/%s/place";
             int url_length = snprintf(NULL, 0, raw_url, commit_hash);
             char* url = (char*) malloc(url_length + 1);
-            snprintf(url, url_length, raw_url, commit_hash);
+            snprintf(url, url_length + 1, raw_url, commit_hash); // + 1?
             new_canvas_info.url = url;
             expect = EXPECT_AUTHOR_LINE;
         }
@@ -316,9 +395,16 @@ void start_generation()
             new_canvas_info.date = date_int;
             free(date);
 
-            // Commit data to download stack
             push_download_stack(new_canvas_info);
             memset(&new_canvas_info, 0, sizeof(struct canvas_info)); // Wipe for reuse
+
+            // Commit data to download stack
+            if (download_stack_top >= STACK_SIZE_MAX - 1)
+            {
+                // We will come back later
+                log_message(LOG_HEADER"Bufferred %d commit records into download stack. Pausing until needs replenish", download_stack_top + 1);
+                break;
+            }
             expect = EXPECT_COMMIT_LINE;
         }
         else
@@ -328,9 +414,32 @@ void start_generation()
             exit(EXIT_FAILURE);
         }
     }
+    return NULL;
+}
+
+// Start all workers, initiate rendering backups 
+void start_generation()
+{
+    // Setup backups dir variable
+    getcwd(backups_dir, sizeof(backups_dir));
+    strcat(backups_dir, "/backups/");
+    mkdir(backups_dir, 0755);
+
+    FILE* file = fopen("commit_hashes.txt", "r");
+    if (file == NULL)
+    {
+        stop_console();
+        fprintf(stderr, "\x1b[1;31mError, could not locate canvas 1 hashes file (commit_hashes.txt)\n");
+        exit(EXIT_FAILURE);
+    }
+    commit_hashes_stream = file;
+
+    long file_lines = flines(file);
+    log_message(LOG_HEADER"Detected %d lines in commit_hashes.txt", file_lines);
+    read_commit_hashes(file);
 
     // fclose
-    log_message(LOG_HEADER"starting backup generation");
+    log_message(LOG_HEADER"Starting backup generation");
     for (int i = 0; i < DEFAULT_DOWNLOAD_WORKER_COUNT; i++)
     {
         add_download_worker();
@@ -356,12 +465,24 @@ void stop_generation()
     exit(0);
 }
 
+void safe_segfault_exit(int sig_num)
+{
+    sleep(1);
+    stop_console();
+    fprintf(stderr, "FATAL - Segmantation fault\n");
+    exit(EXIT_FAILURE);
+}
+
 void start_main_thread()
 {
+    signal(SIGSEGV, safe_segfault_exit);
     curl_global_init(CURL_GLOBAL_DEFAULT);
 
     init_work_queue(&work_queue, MAIN_THREAD_QUEUE_SIZE);
     pthread_mutex_init(&work_wait_mutex, NULL);
+    pthread_mutex_init(&download_pop_mutex, NULL);
+    pthread_mutex_init(&render_pop_mutex, NULL);
+    pthread_mutex_init(&save_pop_mutex, NULL);
 
     pthread_mutex_lock(&work_wait_mutex);
     while (1)

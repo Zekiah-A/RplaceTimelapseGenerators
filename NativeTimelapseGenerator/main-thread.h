@@ -3,10 +3,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <time.h>
-#include "image-generator.h"
 #include "canvas-saver.h"
-#include "canvas-downloader.h"
-#include "worker-structs.h"
 
 // Call from main thread only
 void start_main_thread();
@@ -30,6 +27,7 @@ struct main_thread_queue
 typedef struct worker_info
 {
     pthread_t thread_id;
+    int worker_id;
     union
     {
         struct download_worker_data* download_worker_data;
@@ -44,7 +42,11 @@ void start_generation();
 // STRICT: Call from main thread only
 void stop_generation();
 
-// Called by main thread
-void push_render_queue(struct downloaded_result result);
 // Called by download worker
-void push_save_queue(struct render_result result);
+struct canvas_info pop_download_stack(int worker_id);
+void push_render_stack(struct downloaded_result result);
+// Called by render worker
+struct downloaded_result pop_render_stack(int worker_id);
+void push_save_stack(struct render_result result);
+// Called by save worker
+struct render_result pop_save_stack(int worker_id);

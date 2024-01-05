@@ -1,4 +1,5 @@
 // Modified code from rplace bot https://github.com/Zekiah-A/RplaceBot/blob/main/main.c
+#include <math.h>
 #include <stdio.h>
 #include <png.h>
 #include <string.h>
@@ -12,6 +13,7 @@
 #include "image-generator.h"
 #include "main-thread.h"
 #include "console.h"
+#include "worker-structs.h"
 
 #define LOG_HEADER "[render worker] "
 
@@ -51,7 +53,7 @@ uint8_t default_palette[32][3] = {
 };
 
 
-struct render_result generate_canvas_image(int width, int height, struct region_info region, uint8_t* board, int size)
+struct render_result generate_canvas_image(int width, int height, uint8_t* board)
 {
     struct render_result gen_result = { .error = GENERATION_ERROR_NONE, .error_msg = NULL };
     png_structp png_ptr = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
@@ -114,11 +116,27 @@ void* start_render_worker(void* data)
     WorkerInfo* worker_info = (WorkerInfo*) data;
     worker_info->render_worker_data = (struct render_worker_data*) malloc(sizeof(struct render_worker_data));
     worker_info->render_worker_data->current_canvas_result = NULL;
-    log_message(LOG_HEADER"Started render worker with thread id %d", worker_info->thread_id);
+    log_message(LOG_HEADER"%d] Started render worker with thread id %d", worker_info->worker_id, worker_info->thread_id);
 
     while (1)
     {
-
+        struct downloaded_result download_result = pop_render_stack(worker_info->worker_id);
+        struct canvas_info info = download_result.canvas_info;
+        int square_dimensions = sqrt(download_result.size); // HACK: Sus code since we don't have metadata
+        int width = square_dimensions;
+        int height = square_dimensions;
+        struct render_result result = generate_canvas_image(width, height, download_result.data);
+        free(download_result.data); // safe to delete data from last step now we don't need it
+        if (result.error)
+        {
+            log_message(LOG_HEADER"%d] Render %s failed with error %d message %s", worker_info->worker_id, info.commit_hash, result.error, result.error_msg);
+            continue;
+        }
+        else
+        {
+            result.canvas_info = download_result.canvas_info;
+            push_save_stack(result);
+        }
     }
     return NULL;
 }

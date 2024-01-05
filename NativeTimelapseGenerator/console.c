@@ -13,6 +13,12 @@ start_console_delegate start_console_cli = NULL;
 log_message_delegate log_message_cli = NULL;
 stop_console_delegate stop_console_cli = NULL;
 
+//#ifdef DEBUG
+//#define CONSOLE_LIB_NAME "NativeTimelapseGenerator.Console.so.dbg"
+//#else
+#define CONSOLE_LIB_NAME "NativeTimelapseGenerator.Console.so"
+//#endif
+
 // We still in UI thread, must pass back to main thread
 void ui_start_generation()
 {
@@ -23,18 +29,17 @@ void ui_start_generation()
 void ui_stop_generation()
 {
     printf("Generator CLI application halted. Application will terminate immediately\n");
- }
+}
 
 void* start_console(void* data)
 {
-    const char* console_lib_name = "NativeTimelapseGenerator.Console.so";
     char lib_path[PATH_MAX];
     getcwd(lib_path, sizeof(lib_path));
     if (lib_path[strlen(lib_path) - 1] != '/')
     {
         strcat(lib_path, "/");
     }
-    strcat(lib_path, console_lib_name);
+    strcat(lib_path, CONSOLE_LIB_NAME);
 
     handle = dlopen(lib_path, RTLD_LAZY);
     start_console_cli = dlsym(handle, "start_console");
