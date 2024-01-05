@@ -484,7 +484,6 @@ void* read_commit_hashes(FILE* file)
             strcpy(date, result + 7);
             time_t date_int = strtoull(date, NULL, 10);
             new_canvas_info.date = date_int;
-            log_message("DATE WAS FOUND AS %li", date_int);
             free(date);
 
             push_download_stack(new_canvas_info);
@@ -531,7 +530,7 @@ void start_generation()
     {
         add_download_worker();
     }
-    for (int i = 0; i < DEFAULT_SAVE_WORKER_COUNT; i++)
+    for (int i = 0; i < DEFAULT_RENDER_WORKER_COUNT; i++)
     {
         add_render_worker();
     }
