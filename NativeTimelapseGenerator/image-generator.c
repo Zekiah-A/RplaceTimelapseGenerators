@@ -84,13 +84,16 @@ struct render_result generate_canvas_image(int width, int height, uint8_t* board
 
     png_bytep row_pointers[height];
     
-    // Okay now we can actually draw
-    for (int i = 0; i < height; i++) {
-        row_pointers[i] = (png_bytep) calloc(3 * width, sizeof(png_byte));
-        for (int j = 0; j < width; j++) {
-            int index = i * width + j;
-            for (int p = 0; p < 3; p++) {
-                row_pointers[i][3 * j + p] = default_palette[board[i]][p]; // colour
+    // Transform byte array data into PNG
+    for (int y = 0; y < height; y++)
+    {
+        row_pointers[y] = (png_bytep) calloc(3 * width, sizeof(png_byte));
+        for (int x = 0; x < width; x++)
+        {
+            int index = y * width + x;
+            for (int p = 0; p < 3; p++) // r g b colour compontents
+            {
+                row_pointers[y][3 * x + p] = default_palette[board[index]][p];
             }
         }
     }

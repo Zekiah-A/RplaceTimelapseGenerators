@@ -8,10 +8,23 @@
 #include "dlfcn.h"
 #include "main-thread.h"
 
+// NAME: start_console, ARGS: start_generation_callback, stop_generation_callback, add_worker_callback remove_worker_callback
+typedef void (*start_console_delegate)(void*, void*, void*, void*);
+// NAME: log_message, ARGS: char* message
+typedef void (*log_message_delegate)(char*);
+// NAME: stop_console
+typedef void (*stop_console_delegate)();
+// NAME: update_worker_stats
+typedef void (*update_worker_stats_delegate)(int, int);
+// NAME: update_backups_stats
+typedef void (*update_backups_delegate)(int, int, struct canvas_info);
+
 void* handle = NULL;
 start_console_delegate start_console_cli = NULL;
 log_message_delegate log_message_cli = NULL;
 stop_console_delegate stop_console_cli = NULL;
+update_worker_stats_delegate update_worker_stats_cli = NULL;
+update_backups_delegate update_backups_stats_cli = NULL;
 
 //#ifdef DEBUG
 //#define CONSOLE_LIB_NAME "NativeTimelapseGenerator.Console.so.dbg"
@@ -32,6 +45,25 @@ void ui_stop_generation()
     main_thread_post((struct main_thread_work) { .func = stop_generation });
 }
 
+WorkFunction add_funcs[3] = { add_download_worker, add_render_worker, add_save_worker };
+WorkFunction remove_funcs[3] = { remove_download_worker, remove_render_worker, remove_save_worker };
+
+void ui_add_worker(int worker_type, int add)
+{
+    for (int i = 0; i < add; i++)
+    {
+        main_thread_post((struct main_thread_work) { .func = add_funcs[worker_type] });
+    }
+}
+
+void ui_remove_worker(int worker_type, int remove)
+{
+    for (int i = 0; i < remove; i++)
+    {
+        main_thread_post((struct main_thread_work) { .func = remove_funcs[worker_type] });
+    }
+}
+
 void* start_console(void* data)
 {
     char lib_path[PATH_MAX];
@@ -46,13 +78,15 @@ void* start_console(void* data)
     start_console_cli = dlsym(handle, "start_console");
     log_message_cli = dlsym(handle, "log_message");
     stop_console_cli = dlsym(handle, "stop_console");
-    if (start_console_cli == NULL || log_message_cli == NULL || stop_console_cli == NULL)
+    update_worker_stats_cli = dlsym(handle, "update_worker_stats");
+    update_backups_stats_cli = dlsym(handle, "update_backups_stats");
+    if (start_console_cli == NULL || log_message_cli == NULL || stop_console_cli == NULL || update_worker_stats_cli == NULL || update_backups_stats_cli == NULL)
     {
         fprintf(stderr, "Error - Start console library couldn't be loaded! Method binding failed\n");
         exit(EXIT_FAILURE);
     }
 
-    start_console_cli(&ui_start_generation, &ui_stop_generation);
+    start_console_cli(&ui_start_generation, &ui_stop_generation, &ui_add_worker, &ui_remove_worker);
     return NULL;
 }
 
@@ -77,6 +111,37 @@ void log_message(const char* format, ...)
     {
         log_message_cli(buffer);
     }
+    else
+    {
+        fprintf(stderr, "Error - log_message CLI method is null\n");
+        exit(EXIT_FAILURE);
+    }
 
     free(buffer);
+}
+
+void update_worker_stats(int worker_step, int count)
+{
+    if (update_worker_stats_cli != NULL)
+    {
+        update_worker_stats_cli(worker_step, count);
+    }
+    else
+    {
+        fprintf(stderr, "Error - update_worker_stats CLI method is null\n");
+        exit(EXIT_FAILURE);
+    }
+}
+
+void update_backups_stats(int backups_total, int backups_per_second, struct canvas_info current_info)
+{
+    if (update_backups_stats_cli != NULL)
+    {
+        update_backups_stats_cli(backups_total, backups_per_second, current_info);
+    }
+    else
+    {
+        fprintf(stderr, "Error - update_backups_stats CLI method is null\n");
+        exit(EXIT_FAILURE);
+    }
 }

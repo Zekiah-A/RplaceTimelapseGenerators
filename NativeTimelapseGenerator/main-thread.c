@@ -1,5 +1,4 @@
 #include <signal.h>
-#include <stdatomic.h>
 #include <stdio.h>
 #include <png.h>
 #include <string.h>
@@ -20,6 +19,10 @@
 // Reads canvas list, manages jobs for workers
 #define LOG_HEADER "[main thread] "
 
+#define DOWNLOAD_WORKER_TYPE 0
+#define RENDER_WORKER_TYPE 1
+#define SAVE_WORKER_TYPE 2
+
 // SHARED BETWEEN-WORKER MEMORY
 #define STACK_SIZE_MAX 256
 #define DEFAULT_DOWNLOAD_WORKER_COUNT 2
@@ -35,16 +38,16 @@ int save_stack_top = -1;
 // WORKER THREADS
 #define WORKER_MAX 100
 struct worker_info* download_workers[WORKER_MAX] = { };
-int download_worker_count = 0;
+int download_worker_top = -1;
 struct worker_info* render_workers[WORKER_MAX] = { };
-int render_worker_count = 0;
+int render_worker_top = -1;
 struct worker_info* save_workers[WORKER_MAX] = { };
-int save_worker_count = 0;
+int save_worker_top = -1;
 
-int width = 1000;
-int height = 1000;
-int backups_finished = 0;
-char backups_dir[256];
+time_t completed_backups_date = 0;
+int completed_backups_since = 0;
+int completed_backups = 0;
+struct canvas_info* completed_canvas_info;
 
 pthread_mutex_t work_wait_mutex;
 pthread_mutex_t download_pop_mutex;
@@ -114,10 +117,6 @@ struct main_thread_work pop_work_queue(struct main_thread_queue* queue)
     return message;
 }
 
-// Fetch methods
-// - https://raw.githubusercontent.com/rslashplace2/rslashplace2.github.io/82153c44c6a3cd3f248c3cd20f1ce6b7f0ce4b1e/place
-// - https://github.com/rslashplace2/rslashplace2.github.io/blob/82153c44c6a3cd3f248c3cd20f1ce6b7f0ce4b1e/place?raw=true
-// - https://github.com/rslashplace2/rslashplace2.github.io/raw/82153c44c6a3cd3f248c3cd20f1ce6b7f0ce4b1e/place
 int flines(FILE* file)
 {
     fseek(file, 0, SEEK_SET);
@@ -138,33 +137,81 @@ void add_download_worker()
 {
     pthread_t thread_id;
     struct worker_info* info = (struct worker_info*) malloc(sizeof(struct worker_info));
-    info->worker_id = download_worker_count;
+    info->worker_id = ++download_worker_top;
     pthread_create(&thread_id, NULL, start_download_worker, info);
     info->thread_id = thread_id;
-    download_workers[download_worker_count] = info;
-    download_worker_count++;
+    download_workers[download_worker_top] = info;
+    update_worker_stats(DOWNLOAD_WORKER_TYPE, download_worker_top + 1);
+}
+
+void remove_download_worker()
+{
+    if (download_worker_top < 0)
+    {
+        stop_console();
+        fprintf(stderr, "Error - download worker uunderflow occurred\n");
+        exit(EXIT_FAILURE);
+    }
+    struct worker_info* info = download_workers[download_worker_top];
+    pthread_cancel(info->thread_id);
+    download_worker_top--;
+    free(info->download_worker_data);
+    free(info);
+    update_worker_stats(DOWNLOAD_WORKER_TYPE, download_worker_top + 1);
 }
 
 void add_render_worker()
 {
     pthread_t thread_id;
     struct worker_info* info = (struct worker_info*) malloc(sizeof(struct worker_info));
-    info->worker_id = render_worker_count;
+    info->worker_id = ++render_worker_top;
     pthread_create(&thread_id, NULL, start_render_worker, info);
     info->thread_id = thread_id;
-    render_workers[render_worker_count] = info;
-    render_worker_count++;
+    render_workers[render_worker_top] = info;
+    update_worker_stats(RENDER_WORKER_TYPE, render_worker_top + 1);
+}
+
+void remove_render_worker()
+{
+    if (render_worker_top < 0)
+    {
+        stop_console();
+        fprintf(stderr, "Error - render worker uunderflow occurred\n");
+        exit(EXIT_FAILURE);
+    }
+    struct worker_info* info = render_workers[render_worker_top];
+    pthread_cancel(info->thread_id);
+    render_worker_top--;
+    free(info->render_worker_data);
+    free(info);
+    update_worker_stats(RENDER_WORKER_TYPE, render_worker_top + 1);
 }
 
 void add_save_worker()
 {
     pthread_t thread_id;
     struct worker_info* info = (struct worker_info*) malloc(sizeof(struct worker_info));
-    info->worker_id = save_worker_count;
+    info->worker_id = ++save_worker_top;
     pthread_create(&thread_id, NULL, start_save_worker, info);
     info->thread_id = thread_id;
-    save_workers[save_worker_count] = info;
-    save_worker_count++;
+    save_workers[save_worker_top] = info;
+    update_worker_stats(SAVE_WORKER_TYPE, save_worker_top + 1);
+}
+
+void remove_save_worker()
+{
+    if (save_worker_top < 0)
+    {
+        stop_console();
+        fprintf(stderr, "Error - save worker uunderflow occurred\n");
+        exit(EXIT_FAILURE);
+    }
+    struct worker_info* info = save_workers[save_worker_top];
+    pthread_cancel(info->thread_id);
+    save_worker_top--;
+    free(info->save_worker_data);
+    free(info);
+    update_worker_stats(SAVE_WORKER_TYPE, save_worker_top + 1);
 }
 
 // Post queue
@@ -218,6 +265,33 @@ void push_save_stack(struct render_result result)
         fprintf(stderr, "Error - push_stack overflow occurred\n");
         exit(EXIT_FAILURE);
     }
+}
+
+// Called by save worker
+void push_completed_frame(struct canvas_info info)
+{
+    struct canvas_info* heap_canvas_info = (struct canvas_info*) malloc(sizeof(struct canvas_info));
+
+    // Remove previous heap completed canvas info, finally frees the strings that both stack/heap versions of this uses
+    if (completed_canvas_info != NULL)
+    {
+        free(completed_canvas_info->url);
+        free(completed_canvas_info->commit_hash);
+        free(completed_canvas_info);
+    }
+
+    completed_backups++;
+    completed_backups_since++;
+    completed_canvas_info = heap_canvas_info;
+}
+
+// Called by save worker on main thread, will forward collected info to UI thread
+void collect_backup_stats()
+{
+    int backups_per_second = (time(0) - completed_backups_date) / completed_backups_since;
+    update_backups_stats(completed_backups, backups_per_second, *completed_canvas_info);
+    completed_backups_since = 0;
+    completed_backups_date = time(0);
 }
 
 // Forward declarations
@@ -313,10 +387,15 @@ struct render_result pop_save_stack(int worker_id)
 //  - canvas_1_commit_hashes.txt - only process commits from "root", from after 1672531200,
 //  - commit (1672531012, 48a24088916a63319a56c245a0290d66cf29e076) is the first commit (Jan 1st), 2023
 //  - repo_commit_hashes.txt - Only process commits from "nebulus"
-/*Commit: 49fdda2c4f38f7afd8af2c178b450e8f0fcae65b
-Author: nebulus
-Date: 1704298864*/
-// called by main thread
+// Fetch methods
+// - https://raw.githubusercontent.com/rslashplace2/rslashplace2.github.io/82153c44c6a3cd3f248c3cd20f1ce6b7f0ce4b1e/place
+// - https://github.com/rslashplace2/rslashplace2.github.io/blob/82153c44c6a3cd3f248c3cd20f1ce6b7f0ce4b1e/place?raw=true
+// - https://github.com/rslashplace2/rslashplace2.github.io/raw/82153c44c6a3cd3f248c3cd20f1ce6b7f0ce4b1e/place
+// Example:
+// Commit: 49fdda2c4f38f7afd8af2c178b450e8f0fcae65b
+// Author: nebulus
+// Date: 1704298864
+// STRICT: Called by main thread
 void* read_commit_hashes(FILE* file)
 {
     int expect = EXPECT_COMMIT_LINE;
@@ -360,7 +439,7 @@ void* read_commit_hashes(FILE* file)
 
             char* author = result + 8;
             result[strlen(result) - 1] = '\0';
-            
+
             // HACK: Use author to determine the repo URL of the backup
             const char* raw_url = "https://raw.githubusercontent.com/%s/%s/place";
             const char* raw_repo_part = NULL;
@@ -429,11 +508,6 @@ void* read_commit_hashes(FILE* file)
 // Start all workers, initiate rendering backups 
 void start_generation()
 {
-    // Setup backups dir variable
-    getcwd(backups_dir, sizeof(backups_dir));
-    strcat(backups_dir, "/backups/");
-    mkdir(backups_dir, 0755);
-
     FILE* file = fopen("commit_hashes.txt", "r");
     if (file == NULL)
     {
@@ -473,7 +547,7 @@ void stop_generation()
     // TODO: Terminate and cleanup all workers
     // foreach download worker -> curl_easy_cleanup(curl_handle), etc
     
-    // Cleanuup globals
+    // Cleanup globals
     curl_global_cleanup();
     pthread_exit(NULL);
     exit(0);
@@ -491,6 +565,7 @@ void start_main_thread()
 {
     signal(SIGSEGV, safe_segfault_exit);
     curl_global_init(CURL_GLOBAL_DEFAULT);
+    completed_backups_date = time(0);
 
     init_work_queue(&work_queue, MAIN_THREAD_QUEUE_SIZE);
     pthread_mutex_init(&work_wait_mutex, NULL);

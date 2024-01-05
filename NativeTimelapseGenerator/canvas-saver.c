@@ -31,6 +31,9 @@ void* start_save_worker(void* data)
         }
         fwrite(result.data, sizeof(uint8_t), result.length, image_file_stream);
         fclose(image_file_stream);
+
+        push_completed_frame(info);
+        main_thread_post((struct main_thread_work) { .func = collect_backup_stats });
     }
 
     return NULL;

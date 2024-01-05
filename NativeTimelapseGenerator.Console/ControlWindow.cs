@@ -1,36 +1,212 @@
 ﻿using System;
 using Terminal.Gui;
 using System.Runtime.InteropServices;
+using NStack;
+
+unsafe struct NativeCanvasInfo
+{
+    public IntPtr Url;
+    public IntPtr CommitHash;
+    public int Date;
+}
+
+unsafe struct CanvasInfo
+{
+    public char* Url;
+    public char* CommitHash;
+    public int Date;
+}
+
+record struct WorkerInfo(string Name, int Count);
 
 // dotnet publish -r linux-x64 -c Release
 static unsafe class StaticConsole
 {
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate void Callback();
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate void WorkersCountCallback(int workerId, int changeBy);
     private static Callback? shutdownCallback = null;
     private static Callback? startCallback = null;
+    private static WorkersCountCallback? addWorkerCallback = null;
+    private static WorkersCountCallback? removeWorkerCallback = null;
     private static List<string> serverLogs = new List<string>();
     private static ListView? serverLogListView = null;
     private static readonly object serverLogsLock = new object();
 
+    private static Label? downloadWorkerLabel = null;
+    private static Label? renderWorkerLabel = null;
+    private static Label? saveWorkerLabel = null;
+
+    private static Label? backupsTotalLabel = null;
+    private static Label? backupsPsLabel = null;
+    private static Label? currentDateLabel = null;
 
     [UnmanagedCallersOnly(EntryPoint = "start_console")]
-    public static void StartConsole(IntPtr startCallbackPtr, IntPtr shutdownCallbackPtr)
+    public static void StartConsole(IntPtr startCallbackPtr, IntPtr shutdownCallbackPtr, IntPtr addWorkerPtr, IntPtr removeWorkerPtr)
     {
         // Callbacks
         shutdownCallback = Marshal.GetDelegateForFunctionPointer<Callback>(shutdownCallbackPtr);
         startCallback = Marshal.GetDelegateForFunctionPointer<Callback>(startCallbackPtr);
+        addWorkerCallback = Marshal.GetDelegateForFunctionPointer<WorkersCountCallback>(addWorkerPtr);
+        removeWorkerCallback = Marshal.GetDelegateForFunctionPointer<WorkersCountCallback>(removeWorkerPtr);
 
         // GUI App
         Application.Init();
-        var window = new Window("NativeTimelapseGenerator Control Panel (Ctrl+Q to quit)")
+        var window = new Window()
         {
             X = 0,
             Y = 0,
             Width = Dim.Fill(),
-            Height = Dim.Fill()
+            Height = Dim.Fill(),
+            Border = new Border()
+            {
+                BorderBrush = Color.White,
+                BorderStyle = BorderStyle.Rounded,
+                Title = "NativeTimelapseGenerator Control Panel (Ctrl+Q to quit)"
+            }
         };
         Application.Top.Add(window);
+
+        var shutdownBtn = new Button()
+        {
+            Text = "Shutdown",
+            Y = 1,
+            X = Pos.Center() + 6,
+        };
+        shutdownBtn.Clicked += () =>
+        {
+            MessageBox.Query("Shutdown", "Halting backups generation", "Okay");
+            Application.Shutdown();
+            shutdownCallback?.Invoke();
+        };
+
+        var startBtn = new Button()
+        {
+            Text = "Start",
+            Y = 1,
+            X = Pos.Center() - 12,
+        };
+        startBtn.Clicked += () =>
+        {
+            MessageBox.Query("Start", "Starting backups generation", "Okay");
+            startCallback?.Invoke();
+        };
+
+        var workerPanel = new View()
+        {
+            Y = 4,
+            X = 1,
+            Height = 4,
+            Width = Dim.Percent(50) - 2,
+            Border = new Border()
+            {
+                BorderBrush = Color.White,
+                BorderStyle = BorderStyle.Rounded,
+                Title = "Workers"
+            }
+        }; 
+        var downloadLabel = new Label("Download workers: ")
+        {
+            Y = 0,
+            X = 1,
+        };
+        downloadWorkerLabel = new Label("0")
+        {
+            Y = 0,
+            X = Pos.Right(downloadLabel),
+        };
+        var renderLabel = new Label("Render workers: ")
+        {
+            Y = 1,
+            X = 1,
+        };
+        renderWorkerLabel = new Label("0")
+        {
+            Y = 1,
+            X = Pos.Right(renderLabel),
+        };
+        var saveLabel = new Label("Save workers: ")
+        {
+            Y = 2,
+            X = 1,
+        };
+        saveWorkerLabel = new Label("0")
+        {
+            Y = 2,
+            X = Pos.Right(saveLabel),
+        };
+        var addButton = new Button("Add worker")
+        {
+            Y = 3,
+            X = 0,
+        };
+        addButton.Clicked += () =>
+        {
+            var selected = MessageBox.Query("Add worker", "Select step to add single worker to", "Download", "Render", "Save", "Cancel");
+            if (selected != 3)
+            {
+                addWorkerCallback(selected, 1);
+            }
+        };
+        var removeButton = new Button("Rem worker")
+        {
+            Y = 3,
+            X = Pos.Percent(50)
+        };
+        removeButton.Clicked += () =>
+        {
+            var selected = MessageBox.Query("Remove worker", "Select step to remove single worker from", "Download", "Render", "Save ", "Cancel");
+            if (selected != 3)
+            {
+                removeWorkerCallback(selected, 1);
+            }
+        };
+        workerPanel.Add(downloadLabel, downloadWorkerLabel, renderLabel, renderWorkerLabel, saveLabel, saveWorkerLabel, addButton, removeButton);
+
+        var backupPanel = new View()
+        {
+            Y = 4,
+            X = Pos.Percent(50),
+            Height = 4,
+            Width = Dim.Percent(50) - 2,
+            Border = new Border()
+            {
+                BorderBrush = Color.White,
+                BorderStyle = BorderStyle.Rounded,
+                Title = "Backups"
+            }
+        }; 
+        var backupsTotal = new Label("Total frames: ")
+        {
+            Y = 0,
+            X = 1,
+        };
+        backupsTotalLabel = new Label("0")
+        {
+            Y = 0,
+            X = Pos.Right(downloadLabel),
+        };
+        var backupsPs = new Label("Frames per second: ")
+        {
+            Y = 1,
+            X = 1,
+        };
+        backupsPsLabel = new Label("0")
+        {
+            Y = 1,
+            X = Pos.Right(renderLabel),
+        };
+        var currentDate = new Label("Current canvas date: ")
+        {
+            Y = 2,
+            X = 1,
+        };
+        currentDateLabel = new Label("null")
+        {
+            Y = 2,
+            X = Pos.Right(saveLabel),
+        };
 
         serverLogListView = new ListView(new Rect(0, 0, 128, 10), serverLogs)
         {
@@ -63,32 +239,7 @@ static unsafe class StaticConsole
                 serverLogs.Clear();
             }
         };
-
-        var shutdownBtn = new Button()
-        {
-            Text = "Shutdown",
-            Y = 1,
-            X = Pos.Center() + 6,
-        };
-        shutdownBtn.Clicked += () =>
-        {
-            MessageBox.Query("Shutdown", "Halting backups generation", "Okay");
-            Application.Shutdown();
-            shutdownCallback?.Invoke();
-        };
-
-        var startBtn = new Button()
-        {
-            Text = "Start",
-            Y = 1,
-            X = Pos.Center() - 12,
-        };
-        startBtn.Clicked += () =>
-        {
-            MessageBox.Query("Start", "Starting backups generation", "Okay");
-            startCallback?.Invoke();
-        };
-        window.Add(shutdownBtn, startBtn, serverLogPanel, clearBtn);
+        window.Add(shutdownBtn, startBtn, workerPanel, serverLogPanel, clearBtn);
 
         AppDomain.CurrentDomain.UnhandledException += (sender, args) =>
         {
@@ -115,7 +266,7 @@ static unsafe class StaticConsole
         var message = Marshal.PtrToStringUTF8(messageChars);
         if (message != null)
         {
-            var chunks = SplitChunks(message, 64);
+            var chunks = SplitChunks(message, 128);
             try
             {
                 lock (serverLogsLock)
@@ -171,5 +322,52 @@ static unsafe class StaticConsole
             File.AppendAllText("logs.txt", $"\n{DateTime.Now} Error while shutting down UI application, {error}");
         }
         shutdownCallback?.Invoke();
+    }
+
+    [UnmanagedCallersOnly(EntryPoint = "update_worker_stats")]
+    public static void UpdateWorkerStats(int workerStep, int count)
+    {
+        switch (workerStep)
+        {
+            case 0:
+                if (downloadWorkerLabel != null)
+                {
+                    downloadWorkerLabel.Text = count.ToString();
+                }
+                break;
+            case 1:
+                if (renderWorkerLabel != null)
+                {
+                    renderWorkerLabel.Text = count.ToString();
+                }
+                break;
+            case 2:
+                if (saveWorkerLabel != null)
+                {
+                    saveWorkerLabel.Text = count.ToString();
+                }
+                break;
+        }
+    }
+
+    [UnmanagedCallersOnly(EntryPoint = "update_backups_stats")]
+    public static void UpdateBackupStats(int backupsTotal, int backupsPerSecond, NativeCanvasInfo currentInfo)
+    {
+        //var commitHash = Marshal.PtrToStringUTF8(currentInfo.CommitHash);
+        //var url = Marshal.PtrToStringUTF8(currentInfo.Url);
+        var date = DateTimeOffset.FromUnixTimeSeconds(currentInfo.Date);
+
+        if (backupsTotalLabel != null)
+        {
+            backupsTotalLabel.Text = backupsTotal.ToString();
+        }
+        if (backupsPsLabel != null)
+        {
+            backupsPsLabel.Text = backupsPerSecond.ToString();
+        }
+        if (currentDateLabel != null)
+        {
+            currentDateLabel.Text = date.ToLocalTime().ToString();
+        }
     }
 }

@@ -8,9 +8,11 @@
 // Call from main thread only
 void start_main_thread();
 
+typedef void (*WorkFunction)(void*);
+
 struct main_thread_work
 {
-    void (*func)(void*);
+    WorkFunction func;
     void* data;
 };
 
@@ -41,6 +43,20 @@ void main_thread_post(struct main_thread_work work);
 void start_generation();
 // STRICT: Call on main thread only - POST
 void stop_generation();
+// STRICT: Call on main thread only - POST
+void add_download_worker();
+// STRICT: Call on main thread only - POST
+void remove_download_worker();
+// STRICT: Call on main thread only - POST
+void add_render_worker();
+// STRICT: Call on main thread only - POST
+void remove_render_worker();
+// STRICT: Call on main thread only - POST
+void add_save_worker();
+// STRICT: Call on main thread only - POST
+void remove_save_worker();
+// STRICT: Call on main thread only - POST
+void collect_backup_stats();
 
 // Called by download worker
 struct canvas_info pop_download_stack(int worker_id);
@@ -50,3 +66,4 @@ struct downloaded_result pop_render_stack(int worker_id);
 void push_save_stack(struct render_result result);
 // Called by save worker
 struct render_result pop_save_stack(int worker_id);
+void push_completed_frame(struct canvas_info info);
