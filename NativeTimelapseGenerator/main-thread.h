@@ -37,9 +37,9 @@ typedef struct worker_info
 } WorkerInfo;
 
 void main_thread_post(struct main_thread_work work);
-// STRICT: Call from main thread only
+// STRICT: Call on main thread only - POST
 void start_generation();
-// STRICT: Call from main thread only
+// STRICT: Call on main thread only - POST
 void stop_generation();
 
 // Called by download worker

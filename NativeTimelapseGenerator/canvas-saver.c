@@ -21,7 +21,7 @@ void* start_save_worker(void* data)
         struct render_result result = pop_save_stack(worker_info->worker_id);
         struct canvas_info info = result.canvas_info;
         char image_filename[256];
-        snprintf(image_filename, sizeof(image_filename), "backups/%s.png", result.canvas_info.commit_hash);
+        snprintf(image_filename, sizeof(image_filename), "backups/%li.png", result.canvas_info.date);
 
         FILE* image_file_stream = fopen(image_filename, "wb");
         if (!image_file_stream)

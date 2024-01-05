@@ -49,7 +49,7 @@ struct downloaded_result download_url(struct download_worker_data* worker_data)
     if (!worker_data->curl_handle)
     {
         result.error = DOWNLOAD_ERROR_NONE;
-        result.error_msg = "Failed to initialize libcurl";
+        result.error_msg = strdup("Failed to initialize libcurl");
         return result;
     }
 
@@ -64,12 +64,26 @@ struct downloaded_result download_url(struct download_worker_data* worker_data)
     if (curl_result != CURLE_OK)
     {
         result.error = DOWNLOAD_FAIL_FETCH;
-        result.error_msg = (char*) curl_easy_strerror(curl_result);
-        return result;
+        result.error_msg = strdup(curl_easy_strerror(curl_result));
+    }
+    // HACK: Throw on unusual canvas sizes
+    else if (chunk.size != 1000 * 1000 || chunk.size != 500 * 500 || chunk.size != 2000 * 2000)
+    {
+        result.error = DOWNLOAD_FAIL_BADFILE;
+        const char* error_msg_raw = "Invalid canvas data of size %d, value '%s'";
+        const char* data_preview = "";
+        chunk.memory[64 < chunk.size - 1 ? 64 : chunk.size - 1] = '\0';
+        int error_msg_length = snprintf(NULL, 0, error_msg_raw, chunk.size, chunk.memory);
+        char* error_msg = malloc(error_msg_length + 1);
+        snprintf(error_msg, error_msg_length + 1, error_msg_raw, chunk.size, chunk.memory);
+        result.error_msg = error_msg;
+    }
+    else
+    {
+        result.data = (uint8_t*) chunk.memory;
+        result.size = chunk.size;
     }
 
-    result.data = (uint8_t*) chunk.memory;
-    result.size = chunk.size;
     return result;
 }
 
@@ -93,8 +107,11 @@ void* start_download_worker(void* data)
         }
         else
         {
+            log_message("DOWNLOAD SIZE: %d %s", result.size, result.data);
             push_render_stack(result);
         }
+
+        sleep(5);
     }
     return NULL;
 }

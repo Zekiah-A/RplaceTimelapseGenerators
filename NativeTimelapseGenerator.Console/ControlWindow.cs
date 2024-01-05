@@ -101,11 +101,21 @@ static unsafe class StaticConsole
         var message = Marshal.PtrToStringUTF8(messageChars);
         if (message != null)
         {
+            List<string> chunks = SplitChunks(message, 64);
             try
             {
                 lock (serverLogsLock)
                 {
-                    serverLogs.Add(message);
+                    for (var i = 0; i < chunks.Count; i++)
+                    {
+                        var chunk = chunks[i];
+                        if (i != 0)
+                        {
+                            chunk = "| " + chunk;
+                        }
+                        serverLogs.Add(chunk);
+                    }
+
                     serverLogListView?.SetNeedsDisplay();
                 }
             }
@@ -114,6 +124,13 @@ static unsafe class StaticConsole
                 File.AppendAllText("logs.txt", $"\n{DateTime.Now} Error while adding UI server log, {error}");
             }
         }
+    }
+
+    static List<string> SplitChunks(string input, int chunkSize)
+    {
+        return Enumerable.Range(0, input.Length / chunkSize)
+            .Select(i => input.Substring(i * chunkSize, chunkSize))
+            .ToList();
     }
 
     [UnmanagedCallersOnly(EntryPoint = "stop_console")]

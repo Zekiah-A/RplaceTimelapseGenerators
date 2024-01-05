@@ -60,7 +60,7 @@ struct render_result generate_canvas_image(int width, int height, uint8_t* board
     if (png_ptr == NULL)
     {
         gen_result.error = GENERATION_FAIL_DRAW;
-        gen_result.error_msg = "PNG create write struct failed. png_ptr was null";
+        gen_result.error_msg = strdup("PNG create write struct failed. png_ptr was null");
         png_destroy_write_struct(&png_ptr, NULL);
         return gen_result;
     }
@@ -69,7 +69,7 @@ struct render_result generate_canvas_image(int width, int height, uint8_t* board
     if (info_ptr == NULL)
     {
         gen_result.error = GENERATION_FAIL_DRAW;
-        gen_result.error_msg = "PNG create info struct failed. info_ptr was null";
+        gen_result.error_msg = strdup("PNG create info struct failed. info_ptr was null");
         png_destroy_write_struct(&png_ptr, NULL);
         return gen_result;
     }

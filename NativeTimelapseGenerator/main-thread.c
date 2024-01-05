@@ -22,13 +22,13 @@
 
 // SHARED BETWEEN-WORKER MEMORY
 #define STACK_SIZE_MAX 256
-#define DEFAULT_DOWNLOAD_WORKER_COUNT 3
+#define DEFAULT_DOWNLOAD_WORKER_COUNT 2
 struct canvas_info download_stack[STACK_SIZE_MAX];
 int download_stack_top = -1;
-#define DEFAULT_RENDER_WORKER_COUNT 3
+#define DEFAULT_RENDER_WORKER_COUNT 4
 struct downloaded_result render_stack[STACK_SIZE_MAX];
 int render_stack_top = -1;
-#define DEFAULT_SAVE_WORKER_COUNT 1
+#define DEFAULT_SAVE_WORKER_COUNT 2
 struct render_result save_stack[STACK_SIZE_MAX];
 int save_stack_top = -1;
 
@@ -112,12 +112,6 @@ struct main_thread_work pop_work_queue(struct main_thread_queue* queue)
     pthread_mutex_unlock(&queue->mutex);
 
     return message;
-}
-
-void cleanup_work_queue(struct main_thread_queue* queue)
-{
-    free(queue->work);
-    pthread_mutex_destroy(&queue->mutex);
 }
 
 // Fetch methods
@@ -454,12 +448,17 @@ void start_generation()
     }
 }
 
-// Stop the entire program, will cleanup all resources
+// Often called by UUI. Cleanly shutdown generation side of program, will cleanup all resources
 void stop_generation()
 {
-    // foreach download worker -> curl_easy_cleanup(curl_handle), etc
+    // Cleanup work queue
+    free(work_queue.work);
+    pthread_mutex_destroy(&work_queue.mutex);
 
-    cleanup_work_queue(&work_queue);
+    // TODO: Terminate and cleanup all workers
+    // foreach download worker -> curl_easy_cleanup(curl_handle), etc
+    
+    // Cleanuup globals
     curl_global_cleanup();
     pthread_exit(NULL);
     exit(0);

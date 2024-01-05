@@ -29,6 +29,7 @@ void ui_start_generation()
 void ui_stop_generation()
 {
     printf("Generator CLI application halted. Application will terminate immediately\n");
+    main_thread_post((struct main_thread_work) { .func = stop_generation });
 }
 
 void* start_console(void* data)

@@ -14,3 +14,4 @@ void* start_download_worker(void* data);
 
 #define DOWNLOAD_ERROR_NONE 0
 #define DOWNLOAD_FAIL_FETCH 1
+#define DOWNLOAD_FAIL_BADFILE 2
