@@ -71,12 +71,12 @@ struct downloaded_result download_url(struct download_worker_data* worker_data)
     else if (data.size != 1000 * 1000 && data.size != 500 * 500 && data.size != 2000 * 2000)
     {
         result.error = DOWNLOAD_FAIL_BADFILE;
-        const char* error_msg_raw = "Invalid canvas data of size %d, value '%s'";
+        const char* error_msg_raw = "Invalid canvas data of size %d, value '%s'. From url %s";
         const char* data_preview = "";
         data.memory[64 < data.size - 1 ? 64 : data.size - 1] = '\0';
-        int error_msg_length = snprintf(NULL, 0, error_msg_raw, data.size, data.memory);
+        int error_msg_length = snprintf(NULL, 0, error_msg_raw, data.size, data.memory, worker_data->current_canvas_info.url);
         char* error_msg = malloc(error_msg_length + 1);
-        snprintf(error_msg, error_msg_length + 1, error_msg_raw, data.size, data.memory);
+        snprintf(error_msg, error_msg_length + 1, error_msg_raw, data.size, data.memory, worker_data->current_canvas_info.url);
         result.error_msg = error_msg;
     }
     else

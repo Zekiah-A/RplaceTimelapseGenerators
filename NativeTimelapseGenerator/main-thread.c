@@ -384,7 +384,8 @@ struct render_result pop_save_stack(int worker_id)
 #define MAX_HASHES_LINE_LEN 256
 #define EXPECT_COMMIT_LINE 0
 #define EXPECT_AUTHOR_LINE 1
-#define EXPECT_DATE_LINE 2
+#define EXPECT_ORIGIN_LINE 2
+#define EXPECT_DATE_LINE 3
 
 // Commit: ...\n, Author: ...\n, Date: ...\n, top is most recent, bottom of log is longest ago
 //  - Both files have been manually assimilated into commit_hashes.txt
@@ -444,17 +445,7 @@ void* read_commit_hashes(FILE* file)
 
             char* author = result + 8;
             // HACK: Use author to determine the repo URL of the backup
-            const char* raw_url = "https://raw.githubusercontent.com/%s/%s/place";
-            const char* raw_repo_part = NULL;
-            if (strcmp(author, "root") == 0)
-            {
-                raw_repo_part = "rslashplace2/rslashplace2.github.io";
-            }
-            else if (strcmp(author, "nebulus") == 0)
-            {
-                raw_repo_part = "rplacetk/canvas1";
-            }
-            else
+            if (strcmp(author, "root") != 0 && strcmp(author, "nebulus") != 0)
             {
                 // Ignore this commit, it is not a canvas push
                 expect = EXPECT_COMMIT_LINE;
@@ -462,6 +453,18 @@ void* read_commit_hashes(FILE* file)
                 continue;
             }
 
+            expect = EXPECT_ORIGIN_LINE;
+        }
+        else if (strncmp(result, "Origin: ", 8) == 0)
+        {
+            if (expect != EXPECT_ORIGIN_LINE)
+            {
+                log_message("(Line %d:%s) expected Origin property, skipping", line_index, line);
+                continue;
+            }
+
+            char* raw_repo_part = result + 8;
+            const char* raw_url = "https://raw.githubusercontent.com/%s/%s/place";
             int url_length = snprintf(NULL, 0, raw_url, raw_repo_part, new_canvas_info.commit_hash);
             char* url = (char*) malloc(url_length + 1);
             snprintf(url, url_length + 1, raw_url, raw_repo_part, new_canvas_info.commit_hash); 
