@@ -25,10 +25,10 @@
 
 // SHARED BETWEEN-WORKER MEMORY
 #define STACK_SIZE_MAX 256
-#define DEFAULT_DOWNLOAD_WORKER_COUNT 2
+#define DEFAULT_DOWNLOAD_WORKER_COUNT 4
 struct canvas_info download_stack[STACK_SIZE_MAX];
 int download_stack_top = -1;
-#define DEFAULT_RENDER_WORKER_COUNT 4
+#define DEFAULT_RENDER_WORKER_COUNT 3
 struct downloaded_result render_stack[STACK_SIZE_MAX];
 int render_stack_top = -1;
 #define DEFAULT_SAVE_WORKER_COUNT 2
@@ -149,7 +149,7 @@ void remove_download_worker()
     if (download_worker_top < 0)
     {
         stop_console();
-        fprintf(stderr, "Error - download worker uunderflow occurred\n");
+        fprintf(stderr, "Error - download worker underflow occurred\n");
         exit(EXIT_FAILURE);
     }
     struct worker_info* info = download_workers[download_worker_top];
@@ -176,7 +176,7 @@ void remove_render_worker()
     if (render_worker_top < 0)
     {
         stop_console();
-        fprintf(stderr, "Error - render worker uunderflow occurred\n");
+        fprintf(stderr, "Error - render worker underflow occurred\n");
         exit(EXIT_FAILURE);
     }
     struct worker_info* info = render_workers[render_worker_top];
@@ -203,7 +203,7 @@ void remove_save_worker()
     if (save_worker_top < 0)
     {
         stop_console();
-        fprintf(stderr, "Error - save worker uunderflow occurred\n");
+        fprintf(stderr, "Error - save worker underflow occurred\n");
         exit(EXIT_FAILURE);
     }
     struct worker_info* info = save_workers[save_worker_top];
@@ -386,6 +386,7 @@ struct render_result pop_save_stack(int worker_id)
 #define EXPECT_AUTHOR_LINE 1
 #define EXPECT_ORIGIN_LINE 2
 #define EXPECT_DATE_LINE 3
+const char* expects[] = { "Commit", "Author", "Origin", "Date" };
 
 // Commit: ...\n, Author: ...\n, Date: ...\n, top is most recent, bottom of log is longest ago
 //  - Both files have been manually assimilated into commit_hashes.txt
@@ -416,8 +417,9 @@ void* read_commit_hashes(FILE* file)
         result[--result_len] = '\0';
 
         // Comment or ignore
-        if (strlen(result) == 0 || result[0] == '#' || result[0] == '\n')
+        if (result_len == 0 || result[0] == '#' || result[0] == '\n')
         {
+            log_message("(Line %d) Ignoring comment '%s'", line_index, result);
             continue;
         }
 
@@ -425,7 +427,7 @@ void* read_commit_hashes(FILE* file)
         {
             if (expect != EXPECT_COMMIT_LINE)
             {
-                log_message("(Line %d:%s) expected Commit property, skipping", line_index, line);
+                log_message("(Line %d:%s) expected %s property, skipping", line_index, line, expects[expect]);
                 continue;
             }
             
@@ -439,7 +441,7 @@ void* read_commit_hashes(FILE* file)
         {
             if (expect != EXPECT_AUTHOR_LINE)
             {
-                log_message("(Line %d:%s) expected Author property, skipping", line_index, line);
+                log_message("(Line %d:%s) expected %s property, skipping", line_index, line, expects[expect]);
                 continue;
             }
 
@@ -447,6 +449,7 @@ void* read_commit_hashes(FILE* file)
             // HACK: Use author to determine the repo URL of the backup
             if (strcmp(author, "root") != 0 && strcmp(author, "nebulus") != 0)
             {
+                log_message("(Line %d:%s) commit is not from server push. Ignoring", line_index, line);
                 // Ignore this commit, it is not a canvas push
                 expect = EXPECT_COMMIT_LINE;
                 memset(&new_canvas_info, 0, sizeof(struct canvas_info)); // Wipe for reuse
@@ -459,7 +462,7 @@ void* read_commit_hashes(FILE* file)
         {
             if (expect != EXPECT_ORIGIN_LINE)
             {
-                log_message("(Line %d:%s) expected Origin property, skipping", line_index, line);
+                log_message("(Line %d:%s) expected %s property, skipping", line_index, line, expects[expect]);
                 continue;
             }
 
@@ -475,7 +478,7 @@ void* read_commit_hashes(FILE* file)
         {
             if (expect != EXPECT_DATE_LINE)
             {
-                log_message("(Line %d:%s) expected Date property, skipping", line_index, line);
+                log_message("(Line %d:%s) expected %s property, skipping", line_index, line, expects[expect]);
                 continue;
             }
 
@@ -490,20 +493,15 @@ void* read_commit_hashes(FILE* file)
             strcat(save_path, date);
             strcat(save_path, ".png");
             new_canvas_info.save_path = save_path;
-
-            // If we already have this backup rendered, discard
-            if (access(save_path, F_OK) != -1)
-            {
-                // This backup has already been rendered, just skip
-                expect = EXPECT_COMMIT_LINE;
-                memset(&new_canvas_info, 0, sizeof(struct canvas_info)); // Wipe for reuse
-                continue;
-            }
             free(date);
 
-            // Commit data to download stack
-            push_download_stack(new_canvas_info);
-            memset(&new_canvas_info, 0, sizeof(struct canvas_info)); // Wipe for reuse
+            // If we don't already have this backup rendered, add it to stack
+            if (access(save_path, F_OK) == -1)
+            {
+                // Commit data to download stack
+                push_download_stack(new_canvas_info);
+                memset(&new_canvas_info, 0, sizeof(struct canvas_info)); // Wipe for reuse
+            }
 
             if (download_stack_top >= STACK_SIZE_MAX - 4) // HACK: -4 For some reaason it still overflows and adds too many. Concurrency bug?
             {
@@ -511,6 +509,7 @@ void* read_commit_hashes(FILE* file)
                 log_message(LOG_HEADER"Bufferred %d commit records into download stack. Pausing until needs replenish", download_stack_top + 1);
                 break;
             }
+
             expect = EXPECT_COMMIT_LINE;
         }
         else
@@ -519,6 +518,12 @@ void* read_commit_hashes(FILE* file)
             fprintf(stderr, "(Line %d:%s) Failed to read commit hashes, invalid character\n", line_index, line);
             exit(EXIT_FAILURE);
         }
+    }
+    if (download_stack_top < 0)
+    {
+        stop_console();
+        fprintf(stderr, "Could not find any unprocessed backups from commit_hashes.txt\n");
+        exit(EXIT_FAILURE);
     }
     return NULL;
 }
