@@ -1,7 +1,7 @@
 ﻿// Fullest canvas backup generator, can generate the backups, dates and dates animation for
 // both canvas 1 and canvas 2. However, requires the most work to set up (is used for special
 // cases, such as for full canvas timelapse youtube videos)
-using System.Globalization;
+/*using System.Globalization;
 using System.Net;
 using System.Runtime.InteropServices;
 using TimelapseGen;
@@ -171,3 +171,65 @@ Console.WriteLine("Completed rendering canvas 2 dates");
 // ffmpeg -framerate 24 -pattern_type glob -i Canvas1/'*.png' -vcodec libx264  -b:v 5M Canvas1.mp4
 // for x in *; do     mv -- "$x" "${x//Sun/Sunday}"; done
 // ffmpeg -framerate 24 -i "DatesCanvas1/%04d.png" DatesCanvas1.webm
+*/
+
+// 2024 - Generate dates from native generator
+using System.Diagnostics;
+using TimelapseGen;
+
+var nativeRendersDir = Path.Combine(Directory.GetParent(Directory.GetCurrentDirectory())!.FullName, "NativeTimelapseGenerator", "backups");
+var nativeDatesDir = Path.Combine(Directory.GetCurrentDirectory(), "dates");
+if (!Directory.Exists(nativeDatesDir))
+{
+    Directory.CreateDirectory(nativeDatesDir);
+}
+
+var completedDates = 0;
+DateGenerator.CompletionEvent += (sender, args) => 
+{
+    completedDates++;
+};
+
+async Task RenderNativeDates()
+{
+    Console.WriteLine("Native date gen started");
+    foreach (var renderPath in Directory.EnumerateFiles(nativeRendersDir))
+    {
+        var fileDateString = Path.GetFileNameWithoutExtension(renderPath);
+        if (!long.TryParse(fileDateString, out var dateOffset))
+        {
+            Console.WriteLine($"Failed to parse date integer of backup {fileDateString}");
+            continue;
+        }
+        var dateSavePath = Path.Combine(nativeDatesDir, Path.GetFileName(renderPath));
+        if (File.Exists(dateSavePath))
+        {
+            continue;
+        }
+
+        var date = DateTimeOffset.FromUnixTimeSeconds(dateOffset);
+        await DateGenerator.GenerateImageFrom(date.ToString("ddd, dd MMM yyy HH:mm:ss"), dateSavePath);
+    }
+    Console.WriteLine("Native date gen complete");
+}
+
+RenderNativeDates();
+
+while (true)
+{
+    var command = Console.ReadLine();
+    switch (command)
+    {
+        case "status":
+            Console.WriteLine($"Completed dates: {completedDates}");
+            break;
+        case "quit" or "stop" or "exit":
+            Environment.Exit(0);
+            break;
+    }
+}
+
+// DATES:
+// ffmpeg -framerate 24 -pattern_type glob -i "dates/*.png" -c:v libx264 -pix_fmt yuv420p dates.mp4
+
+

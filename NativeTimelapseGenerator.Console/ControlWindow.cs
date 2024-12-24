@@ -2,19 +2,37 @@
 using Terminal.Gui;
 using System.Runtime.InteropServices;
 using NStack;
+using System.Runtime.InteropServices.Marshalling;
 
-
-[StructLayout(LayoutKind.Explicit, Size = 32)] // 64 bit platform
+[StructLayout(LayoutKind.Explicit, Size = 32)] // 64-bit platform
 unsafe struct NativeCanvasInfo
 {
     [FieldOffset(0)]
-    public IntPtr Url;
+    private IntPtr UrlPtr;
     [FieldOffset(8)]
-    public IntPtr CommitHash;
+    private IntPtr CommitHashPtr;
     [FieldOffset(16)]
-    public IntPtr SavePath;
+    private IntPtr SavePathPtr;
     [FieldOffset(24)]
     public long Date;
+
+    public string Url
+    {
+        get => Marshal.PtrToStringUTF8(UrlPtr) ?? string.Empty;
+        set => UrlPtr = Marshal.StringToHGlobalAuto(value);
+    }
+
+    public string CommitHash
+    {
+        get => Marshal.PtrToStringUTF8(CommitHashPtr) ?? string.Empty;
+        set => CommitHashPtr = Marshal.StringToHGlobalAuto(value);
+    }
+
+    public string SavePath
+    {
+        get => Marshal.PtrToStringUTF8(SavePathPtr) ?? string.Empty;
+        set => SavePathPtr = Marshal.StringToHGlobalAuto(value);
+    }
 }
 
 record struct WorkerInfo(string Name, int Count);
@@ -27,7 +45,9 @@ static unsafe class StaticConsole
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate void WorkersCountCallback(int workerId, int changeBy);
     private static Callback? shutdownCallback = null;
-    private static Callback? startCallback = null;
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate void StartCallback(IntPtr repoUrlPtr, IntPtr logFileNamePtr);
+    private static StartCallback? startCallback = null;
     private static WorkersCountCallback? addWorkerCallback = null;
     private static WorkersCountCallback? removeWorkerCallback = null;
     private static List<string> serverLogs = new List<string>();
@@ -47,7 +67,7 @@ static unsafe class StaticConsole
     {
         // Callbacks
         shutdownCallback = Marshal.GetDelegateForFunctionPointer<Callback>(shutdownCallbackPtr);
-        startCallback = Marshal.GetDelegateForFunctionPointer<Callback>(startCallbackPtr);
+        startCallback = Marshal.GetDelegateForFunctionPointer<StartCallback>(startCallbackPtr);
         addWorkerCallback = Marshal.GetDelegateForFunctionPointer<WorkersCountCallback>(addWorkerPtr);
         removeWorkerCallback = Marshal.GetDelegateForFunctionPointer<WorkersCountCallback>(removeWorkerPtr);
 
@@ -90,7 +110,9 @@ static unsafe class StaticConsole
         startBtn.Clicked += () =>
         {
             MessageBox.Query("Start", "Starting backups generation", "Okay");
-            startCallback?.Invoke();
+            var repoUrl = Marshal.StringToHGlobalAuto("https://github.com/rplacetk/canvas1");
+            var logFileName = Marshal.StringToHGlobalAuto("commit_hashes.txt");
+            startCallback?.Invoke(repoUrl, logFileName);
         };
 
         var workerPanel = new View()
@@ -105,7 +127,8 @@ static unsafe class StaticConsole
                 BorderStyle = BorderStyle.Rounded,
                 Title = "Workers"
             }
-        }; 
+        };
+
         var downloadLabel = new Label("Download workers: ")
         {
             Y = 0,
@@ -136,6 +159,7 @@ static unsafe class StaticConsole
             Y = 2,
             X = Pos.Right(saveLabel),
         };
+
         var addButton = new Button("Add worker")
         {
             Y = 3,
@@ -149,10 +173,11 @@ static unsafe class StaticConsole
                 addWorkerCallback(selected, 1);
             }
         };
+
         var removeButton = new Button("Rem worker")
         {
             Y = 3,
-            X = Pos.Percent(50)
+            X = Pos.Percent(50),
         };
         removeButton.Clicked += () =>
         {
@@ -162,6 +187,7 @@ static unsafe class StaticConsole
                 removeWorkerCallback(selected, 1);
             }
         };
+
         workerPanel.Add(downloadLabel, downloadWorkerLabel, renderLabel, renderWorkerLabel, saveLabel, saveWorkerLabel, addButton, removeButton);
 
         var backupPanel = new View()
@@ -176,7 +202,8 @@ static unsafe class StaticConsole
                 BorderStyle = BorderStyle.Rounded,
                 Title = "Backups"
             }
-        }; 
+        };
+
         var backupsTotal = new Label("Total frames: ")
         {
             Y = 0,
@@ -207,6 +234,7 @@ static unsafe class StaticConsole
             Y = 2,
             X = Pos.Right(currentDate),
         };
+
         backupPanel.Add(backupsTotal, backupsTotalLabel, backupsPs, backupsPsLabel, currentDate, currentDateLabel);
 
         serverLogListView = new ListView(new Rect(0, 0, 128, 10), serverLogs)
@@ -240,6 +268,7 @@ static unsafe class StaticConsole
                 serverLogs.Clear();
             }
         };
+
         window.Add(shutdownBtn, startBtn, workerPanel, backupPanel, serverLogPanel, clearBtn);
 
         AppDomain.CurrentDomain.UnhandledException += (sender, args) =>
@@ -294,20 +323,16 @@ static unsafe class StaticConsole
 
     static string[] SplitChunks(string input, int chunkSize)
     {
-        int divResult = Math.DivRem(input.Length, chunkSize, out var remainder);
-    
-        int chunkCount = remainder > 0 ? divResult + 1 : divResult;
+        int chunkCount = (input.Length + chunkSize - 1) / chunkSize;
         var result = new string[chunkCount];
-    
-        int i = 0;
-        while (i < chunkCount - 1)
+
+        for (int i = 0; i < chunkCount; i++)
         {
-            result[i] = input.Substring(i * chunkSize, chunkSize);
-            i++;
+            int start = i * chunkSize;
+            int length = Math.Min(chunkSize, input.Length - start);
+            result[i] = input.Substring(start, length);
         }
-    
-        int lastChunkSize = remainder > 0 ? remainder : chunkSize;
-        result[i] = input.Substring(i * chunkSize, lastChunkSize);
+
         return result;
     }
 

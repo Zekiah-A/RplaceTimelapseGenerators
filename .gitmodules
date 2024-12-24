@@ -1,0 +1,3 @@
+[submodule "NativeTimelapseGenerator/parson"]
+	path = NativeTimelapseGenerator/parson
+	url = https://github.com/kgabis/parson
