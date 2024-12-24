@@ -24,6 +24,10 @@ add_subdirectory(${CMAKE_SOURCE_DIR}/parson)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LIBGIT2 REQUIRED libgit2)
 
+# Find Cairo package
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(CAIRO REQUIRED cairo)
+
 # Find SQLite3 package
 find_package(SQLite3 REQUIRED)
 
@@ -31,7 +35,7 @@ find_package(SQLite3 REQUIRED)
 add_executable(${PROJECT_NAME} ${SOURCE_FILES})
 
 # Link libraries
-target_link_libraries(${PROJECT_NAME} png curl m parson ${LIBGIT2_LIBRARIES} SQLite::SQLite3)
+target_link_libraries(${PROJECT_NAME} png curl m parson ${LIBGIT2_LIBRARIES} SQLite::SQLite3 ${CAIRO_LIBRARIES})
 
 # Custom command to build C# project
 add_custom_command(

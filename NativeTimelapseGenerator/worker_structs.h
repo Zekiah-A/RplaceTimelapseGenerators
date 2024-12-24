@@ -36,6 +36,8 @@ typedef struct render_result {
 	GenerationError error;
 	int image_size;
 	uint8_t* image;
+	int date_image_size;
+	uint8_t* date_image;
 	// must be mutable, may be freed by error handler
 	char* error_msg;
 } RenderResult;

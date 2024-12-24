@@ -10,13 +10,10 @@ the functionality to produce a series of frames, either from server backuplists,
  - *BackupGenerator indicates that this generator is only able to produce an image from an rplace canvas backup.
 
 ### NodeBackupGenerator
-Primitive, slow, naive and easy to run node (javascript-based) generator, which can be found in [NodeBackupGenerator/](NodeBackupGenerator/downloader.js).
-
-### DotnetTimelapseGenerator
-Medium performance generator, cabable of generating an animation of the dates from backups, and other edge-case functionality, less configurable (will require source modification), see the dotnet generator at [DotnetTimelapseGenerator/](DotnetTimelapseGenerator/)
+Primitive, slow, naive and easy to run bunjs (javascript-based) generator, which can be found in [NodeBackupGenerator/](NodeBackupGenerator/downloader.js).
 
 ### Native timelapse generator
-For an extremely highly performant, UNIX compatible, multi threaded generator, see the C, C# hybrid native generator at [NativeTimelapseGenerator/](NativeTimelapseGenerator/).
+For an extremely highly performant, UNIX only, multi threaded generator, see the C, C# hybrid native generator at [NativeTimelapseGenerator/](NativeTimelapseGenerator/).
 
 ![NativeTimelapseGenerator structure diagram](NativeTimelapseGenerator/structure.png)
 

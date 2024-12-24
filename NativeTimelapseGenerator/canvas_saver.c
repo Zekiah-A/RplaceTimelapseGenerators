@@ -27,7 +27,7 @@ void* start_save_worker(void* data)
 		CanvasInfo info = result.canvas_info;
 
 		char timestamp[20];
-		if (strftime(timestamp, sizeof(timestamp), "%Y%m%d%H%M%S", localtime(&info.date)) == 0) {
+		if (strftime(timestamp, sizeof(timestamp), "%Y-%m-%dT%H:%M:%SZ", gmtime(&info.date)) == 0) {
 			log_message(LOG_HEADER"Failed to format timestamp", worker_info->worker_id);
 			continue;
 		}
@@ -58,6 +58,29 @@ void* start_save_worker(void* data)
 		}
 		fclose(image_file_stream);
 		free(save_path);
+
+		// Save date image
+		char* date_save_path = malloc(6 + strlen(timestamp) + 4 + 1);
+		if (!date_save_path) {
+			log_message(LOG_HEADER"Failed to allocate memory for date_save_path", worker_info->worker_id);
+			continue;
+		}
+		strcpy(date_save_path, "dates/");
+		strcat(date_save_path, timestamp);
+		strcat(date_save_path, ".png");
+
+		FILE* date_image_file_stream = fopen(date_save_path, "wb");
+		if (!date_image_file_stream) {
+			log_message(LOG_HEADER"Save worker %d failed with error couldn't open date image file for writing", worker_info->worker_id, worker_info->worker_id, info.commit_hash);
+			free(date_save_path);
+			continue;
+		}
+		written = fwrite(result.date_image, sizeof(uint8_t), result.date_image_size, date_image_file_stream);
+		if (written != result.date_image_size) {
+			log_message(LOG_HEADER"Save worker %d failed with error couldn't write the complete date image", worker_info->worker_id, worker_info->worker_id, info.commit_hash);
+		}
+		fclose(date_image_file_stream);
+		free(date_save_path);
 
 		push_completed_frame(info);
 		main_thread_post((struct main_thread_work) { .func = collect_backup_stats });

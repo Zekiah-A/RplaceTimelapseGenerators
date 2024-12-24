@@ -1,6 +1,6 @@
 -- TODO: Implement this
 
--- Stores Git repositories being tracked.
+-- Stores Git repositories that canvas timelapses have been generated from.
 CREATE TABLE IF NOT EXISTS Repos (
 	id INTEGER PRIMARY KEY, -- Unique identifier for the repository.
 	url TEXT NOT NULL       -- URL of the Git repository.

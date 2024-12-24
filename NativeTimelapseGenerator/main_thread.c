@@ -277,7 +277,7 @@ CanvasInfo pop_download_stack(int worker_id)
 {
 	CanvasInfo result;
 	while (pop_stack(&download_stack, &result) == 1) {
-		usleep(100000); // Wait for 100ms
+		usleep(10000); // Wait for 10ms
 	}
 	return result;
 }
@@ -287,7 +287,7 @@ DownloadedResult pop_render_stack(int worker_id)
 {
 	DownloadedResult result;
 	while (pop_stack(&render_stack, &result) == 1) {
-		usleep(100000); // Wait for 100ms
+		usleep(10000); // Wait for 10ms
 	}
 	return result;
 }
@@ -297,7 +297,7 @@ RenderResult pop_save_stack(int worker_id)
 {
 	RenderResult result;
 	while (pop_stack(&save_stack, &result) == 1) {
-		usleep(100000); // Wait for 100ms
+		usleep(10000); // Wait for 10ms
 	}
 	return result;
 }
@@ -702,10 +702,18 @@ void start_generation(const char* download_base_url, const char* repo_url, const
 	log_message(LOG_HEADER"Detected %d lines in %s", file_lines, log_file_name);
 	read_commit_hashes(file);
 
+	// Create required directories
 	if (mkdir("backups", 0777) == -1) {
 		if (errno != EEXIST) {
 			stop_console();
 			log_message(LOG_HEADER, "Error creating backups directory\n");
+			exit(EXIT_FAILURE);
+		}
+	}
+	if (mkdir("dates", 0777) == -1) {
+		if (errno != EEXIST) {
+			stop_console();
+			log_message(LOG_HEADER, "Error creating dates directory\n");
 			exit(EXIT_FAILURE);
 		}
 	}
@@ -785,7 +793,7 @@ void start_main_thread(bool start, const char* download_base_url, const char* re
 		// Will wait for work to arrive via work queue, at which point
 		// main thread will pop & process work
 		while (!work_queue_replenished) {
-			usleep(1000);
+			usleep(10000); // Wait for 10ms
 		}
 		work_queue_replenished = false;
 

@@ -13,6 +13,7 @@
 #include "main_thread.h"
 #include "console.h"
 #include "worker_structs.h"
+#include <cairo/cairo.h>
 
 #define LOG_HEADER "[render worker %d] "
 
@@ -50,6 +51,67 @@ Colour default_palette[32] = {
 	{212, 215, 217},
 	{255, 255, 255}
 };
+
+RenderResult generate_date_image(int width, const char* date_text)
+{
+	RenderResult result = { .error = GENERATION_ERROR_NONE, .error_msg = NULL };
+	int text_image_height = 128;
+	int text_image_width = width;
+	cairo_surface_t* surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, text_image_width, text_image_height);
+	cairo_t* cr = cairo_create(surface);
+
+	// Set transparent background
+	cairo_set_source_rgba(cr, 0, 0, 0, 0); // transparent
+	cairo_paint(cr);
+
+	// Set text color and font
+	cairo_select_font_face(cr, "Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
+	cairo_set_font_size(cr, 32);
+
+	// Calculate text position
+	cairo_text_extents_t extents;
+	cairo_text_extents(cr, date_text, &extents);
+	double x = (text_image_width - extents.width) / 2;
+	double y = (text_image_height - extents.height) / 2 + extents.height;
+
+	// Draw drop shadow
+	cairo_set_source_rgba(cr, 0, 0, 0, 0.5); // black with 50% opacity
+	cairo_move_to(cr, x + 2, y + 2); // offset for shadow
+	cairo_show_text(cr, date_text);
+
+	// Draw text
+	cairo_set_source_rgb(cr, 1, 1, 1); // white
+	cairo_move_to(cr, x, y);
+	cairo_show_text(cr, date_text);
+
+	// Finish drawing
+	cairo_destroy(cr);
+
+	// Write to memory buffer
+	unsigned char* buffer = NULL;
+	unsigned long buffer_size = 0;
+	FILE* memory_stream = open_memstream((char**) &buffer, &buffer_size);
+	if (memory_stream == NULL) {
+		result.error = GENERATION_FAIL_DRAW;
+		result.error_msg = strdup("Failed to open memory stream");
+		cairo_surface_destroy(surface);
+		return result;
+	}
+	if (cairo_surface_write_to_png_stream(surface, (cairo_write_func_t)fwrite, memory_stream) != CAIRO_STATUS_SUCCESS) {
+		result.error = GENERATION_FAIL_DRAW;
+		result.error_msg = strdup("Failed to write to memory stream");
+		fclose(memory_stream);
+		cairo_surface_destroy(surface);
+		return result;
+	}
+	fclose(memory_stream);
+	cairo_surface_destroy(surface);
+
+	result.date_image = buffer;
+	result.date_image_size = buffer_size;
+
+	return result;
+}
 
 RenderResult generate_canvas_image(int width, int height, uint8_t* board, int palette_size, Colour* palette)
 {
@@ -120,6 +182,7 @@ RenderResult generate_canvas_image(int width, int height, uint8_t* board, int pa
 	
 	result.image = (uint8_t*) stream_buffer;
 	result.image_size = stream_length;
+
 	return result;
 }
 
@@ -130,8 +193,7 @@ void* start_render_worker(void* data)
 	worker_info->render_worker_data->current_canvas_result = NULL;
 	log_message(LOG_HEADER"Started render worker with thread id %d", worker_info->worker_id, worker_info->thread_id);
 
-	while (true)
-	{
+	while (true) {
 		DownloadedResult download_result = pop_render_stack(worker_info->worker_id);
 		CanvasInfo info = download_result.canvas_info;
 		RenderResult result = generate_canvas_image(download_result.width, download_result.height,
@@ -142,11 +204,14 @@ void* start_render_worker(void* data)
 			log_message(LOG_HEADER"Render %s failed with error %d message %s", worker_info->worker_id, info.commit_hash, result.error, result.error_msg);
 			continue;
 		}
-		else
-		{
-			result.canvas_info = download_result.canvas_info;
-			push_save_stack(result);
-		}
+
+		char date_text[32];
+		strftime(date_text, sizeof(date_text), "%a %d %b %Y %H:%M", gmtime(&info.date));
+		RenderResult date_result = generate_date_image(download_result.width, date_text);
+		result.date_image = date_result.date_image;
+		result.date_image_size = date_result.date_image_size;
+		result.canvas_info = download_result.canvas_info;
+		push_save_stack(result);
 	}
 	return NULL;
 }
