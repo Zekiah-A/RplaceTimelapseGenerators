@@ -18,6 +18,7 @@
 #include <stdbool.h>
 #include <execinfo.h>
 #include <git2.h>
+#include <errno.h>
 #include <sqlite3.h>
 
 // Reads canvas list, manages jobs for workers
@@ -53,6 +54,8 @@ pthread_mutex_t render_pop_mutex;
 bool render_stack_replenished = false;
 pthread_mutex_t save_pop_mutex;
 bool save_stack_replenished = false;
+
+const char* _download_base_url;
 
 // DATABASE
 sqlite3* database = NULL;
@@ -273,7 +276,9 @@ FILE* commit_hashes_stream = NULL;
 CanvasInfo pop_download_stack(int worker_id)
 {
 	CanvasInfo result;
-	pop_stack(&download_stack, &result);
+	while (pop_stack(&download_stack, &result) == 1) {
+		usleep(100000); // Wait for 100ms
+	}
 	return result;
 }
 
@@ -281,7 +286,9 @@ CanvasInfo pop_download_stack(int worker_id)
 DownloadedResult pop_render_stack(int worker_id)
 {
 	DownloadedResult result;
-	pop_stack(&render_stack, &result);
+	while (pop_stack(&render_stack, &result) == 1) {
+		usleep(100000); // Wait for 100ms
+	}
 	return result;
 }
 
@@ -289,7 +296,9 @@ DownloadedResult pop_render_stack(int worker_id)
 RenderResult pop_save_stack(int worker_id)
 {
 	RenderResult result;
-	pop_stack(&save_stack, &result);
+	while (pop_stack(&save_stack, &result) == 1) {
+		usleep(100000); // Wait for 100ms
+	}
 	return result;
 }
 
@@ -374,19 +383,8 @@ void* read_commit_hashes(FILE* file)
 			time_t date_int = strtoll(date, NULL, 10);
 			new_canvas_info.date = date_int;
 
-			char* save_path = malloc(8 + strlen(date) + 4 + 1);
-			strcpy(save_path, "backups/");
-			strcat(save_path, date);
-			strcat(save_path, ".png");
-			new_canvas_info.save_path = save_path;
-			free(date);
-
-			// If we don't already have this backup rendered, add it to stack
-			if (access(save_path, F_OK) == -1) {
-				// Commit data to download stack
-				push_download_stack(new_canvas_info);
-				memset(&new_canvas_info, 0, sizeof(CanvasInfo)); // Wipe for reuse
-			}
+			push_download_stack(new_canvas_info);
+			memset(&new_canvas_info, 0, sizeof(CanvasInfo)); // Wipe for reuse
 
 			if (download_stack.top >= STACK_SIZE_MAX - 4) { // HACK: -4 For some reaason it still overflows and adds too many. Concurrency bug?
 				// We will come back later
@@ -664,9 +662,16 @@ bool try_create_database()
 	return true;
 }
 
-// Start all workers, initiate rendering backups
-void start_generation(const char* repo_url, const char* log_file_name)
+const char* get_download_base_url()
 {
+	return _download_base_url;
+}
+
+// Start all workers, initiate rendering backups
+void start_generation(const char* download_base_url, const char* repo_url, const char* log_file_name)
+{
+	_download_base_url = download_base_url;
+
 	if (!try_create_database()) {
 		stop_console();
 		log_message(LOG_HEADER"Error creating database\n");
@@ -696,6 +701,14 @@ void start_generation(const char* repo_url, const char* log_file_name)
 	long file_lines = flines(file);
 	log_message(LOG_HEADER"Detected %d lines in %s", file_lines, log_file_name);
 	read_commit_hashes(file);
+
+	if (mkdir("backups", 0777) == -1) {
+		if (errno != EEXIST) {
+			stop_console();
+			log_message(LOG_HEADER, "Error creating backups directory\n");
+			exit(EXIT_FAILURE);
+		}
+	}
 
 	log_message(LOG_HEADER"Starting backup generation...");
 	for (int i = 0; i < DEFAULT_DOWNLOAD_WORKER_COUNT; i++) {
@@ -754,7 +767,7 @@ void safe_segfault_exit(int sig_num)
 	exit(EXIT_FAILURE);
 }
 
-void start_main_thread(bool start, const char* repo_url, const char* log_file_name)
+void start_main_thread(bool start, const char* download_base_url, const char* repo_url, const char* log_file_name)
 {
 	signal(SIGSEGV, safe_segfault_exit);
 	curl_global_init(CURL_GLOBAL_DEFAULT);
@@ -766,7 +779,7 @@ void start_main_thread(bool start, const char* repo_url, const char* log_file_na
 	init_stack(&save_stack, sizeof(RenderResult), STACK_SIZE_MAX);
 
 	if (start) {
-		start_generation(repo_url, log_file_name);
+		start_generation(download_base_url, repo_url, log_file_name);
 	}
 	while (true) {
 		// Will wait for work to arrive via work queue, at which point
@@ -842,21 +855,21 @@ void push_stack(Stack* stack, void* item)
 	pthread_mutex_unlock(&stack->mutex);
 }
 
-void pop_stack(Stack* stack, void* item)
+int pop_stack(Stack* stack, void* item)
 {
 	pthread_mutex_lock(&stack->mutex);
 
 	if (stack->top < 0) {
-		stop_console();
-		fprintf(stderr, "Error - stack underflow occurred\n");
+		memset(item, 0, stack->item_size);
 		pthread_mutex_unlock(&stack->mutex);
-		exit(EXIT_FAILURE);
+		return 1;
 	}
 
 	memcpy(item, (char*)stack->items + stack->top * stack->item_size, stack->item_size);
 	stack->top--;
 
 	pthread_mutex_unlock(&stack->mutex);
+	return 0;
 }
 
 void free_stack(Stack* stack)

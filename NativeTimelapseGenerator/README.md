@@ -6,6 +6,8 @@
 - Download workers run, push curl results to the canvas queue,
 - These are then processed by the render workers, which render out the canvases to image frames
 - These are finally passed to save workers, which pull the results from the render workers and save to disk
+- The final timelapse video is then able to be generated with ffmpeg, using commands such as the following: 
+  `ffmpeg -framerate 24 -pattern_type glob -i "backups/*.png" -c:v libx264 -pix_fmt yuv420p -vf "pad=2000:2000:(ow-iw)/2:(oh-ih)/2" timelapse.mp4`
 
 ## Building and Running:
 

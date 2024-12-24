@@ -3,12 +3,18 @@
 #include <stdint.h>
 #include <time.h>
 
-typedef uint8_t Colour[3];
+typedef union {
+	uint8_t items[4];
+	struct {
+		uint8_t r;
+		uint8_t g;
+		uint8_t b;
+		uint8_t a;
+	};
+} Colour;
 
 typedef struct canvas_info {
-	char* base_url;
 	char* commit_hash;
-	char* save_path;
 	time_t date;
 } CanvasInfo;
 

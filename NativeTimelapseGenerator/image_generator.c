@@ -14,7 +14,7 @@
 #include "console.h"
 #include "worker_structs.h"
 
-#define LOG_HEADER "[render worker %d]"
+#define LOG_HEADER "[render worker %d] "
 
 Colour default_palette[32] = {
 	{109, 0, 26},
@@ -54,9 +54,14 @@ Colour default_palette[32] = {
 RenderResult generate_canvas_image(int width, int height, uint8_t* board, int palette_size, Colour* palette)
 {
 	RenderResult result = { .error = GENERATION_ERROR_NONE, .error_msg = NULL };
+	if (width == 0 || height == 0) {
+		result.error = GENERATION_FAIL_DRAW;
+		result.error_msg = strdup("Canvas width or height was zero");
+		return result;
+	}
+
 	png_structp png_ptr = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
-	if (png_ptr == NULL)
-	{
+	if (png_ptr == NULL) {
 		result.error = GENERATION_FAIL_DRAW;
 		result.error_msg = strdup("PNG create write struct failed. png_ptr was null");
 		png_destroy_write_struct(&png_ptr, NULL);
@@ -64,8 +69,7 @@ RenderResult generate_canvas_image(int width, int height, uint8_t* board, int pa
 	}
 
 	png_infop info_ptr = png_create_info_struct(png_ptr);
-	if (info_ptr == NULL)
-	{
+	if (info_ptr == NULL) {
 		result.error = GENERATION_FAIL_DRAW;
 		result.error_msg = strdup("PNG create info struct failed. info_ptr was null");
 		png_destroy_write_struct(&png_ptr, NULL);
@@ -77,7 +81,7 @@ RenderResult generate_canvas_image(int width, int height, uint8_t* board, int pa
 	FILE* memory_stream = open_memstream(&stream_buffer, &stream_length);
 
 	png_init_io(png_ptr, memory_stream);
-	png_set_IHDR(png_ptr, info_ptr, width, height, 8, PNG_COLOR_TYPE_RGB, PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
+	png_set_IHDR(png_ptr, info_ptr, width, height, 8, PNG_COLOR_TYPE_RGBA, PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
 	png_write_info(png_ptr, info_ptr);
 
 	png_bytep row_pointers[height];
@@ -89,19 +93,16 @@ RenderResult generate_canvas_image(int width, int height, uint8_t* board, int pa
 	}
 
 	// Transform byte array data into PNG
-	for (int y = 0; y < height; y++)
-	{
-		row_pointers[y] = (png_bytep) calloc(3 * width, sizeof(png_byte));
-		for (int x = 0; x < width; x++)
-		{
+	for (int y = 0; y < height; y++) {
+		row_pointers[y] = (png_bytep) calloc(sizeof(Colour) * width, sizeof(png_byte));
+		for (int x = 0; x < width; x++) {
 			int index = y * width + x;
 			uint8_t colour_index = board[index];
 			if (colour_index >= palette_size) {
 				colour_index = 0;
 			}
-			for (int p = 0; p < 3; p++) // r g b colour components
-			{
-				row_pointers[y][3 * x + p] = palette[colour_index][p];
+			for (int p = 0; p < sizeof(Colour); p++) { // r g b colour components
+				row_pointers[y][sizeof(Colour) * x + p] = palette[colour_index].items[p];
 			}
 		}
 	}

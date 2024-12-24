@@ -6,6 +6,7 @@
 struct download_worker_data
 {
 	CURL* curl_handle;
+	const char* download_base_url;
 	CanvasInfo current_canvas_info;
 };
 

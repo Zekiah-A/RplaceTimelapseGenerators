@@ -33,12 +33,12 @@ update_backups_delegate update_backups_stats_cli = NULL;
 #endif
 
 // We still in UI thread, must pass back to main thread
-void ui_start_generation(char* repo_url, char* log_file_name)
+void ui_start_generation(char* download_base_url, char* repo_url, char* log_file_name)
 {
 	main_thread_post((MainThreadWork) {
 		.func = start_generation,
 		.arg_count = 2,
-		.args = { repo_url, log_file_name }
+		.args = { download_base_url, repo_url, log_file_name }
 	});
 }
 

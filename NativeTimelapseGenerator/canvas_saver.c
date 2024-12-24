@@ -2,16 +2,21 @@
 #include <stdlib.h>
 #include <string.h>
 #include "canvas_saver.h"
+#include <unistd.h> // for access and F_OK
 #include "console.h"
 #include "main_thread.h"
 #include "worker_structs.h"
 
-#define LOG_HEADER "[save worker %d]"
+#define LOG_HEADER "[save worker %d] "
 
 void* start_save_worker(void* data)
 {
 	WorkerInfo* worker_info = (WorkerInfo*) data;
 	worker_info->save_worker_data = (struct save_worker_data*) malloc(sizeof(struct save_worker_data));
+	if (!worker_info->save_worker_data) {
+		log_message(LOG_HEADER"Failed to allocate memory for save_worker_data", worker_info->worker_id);
+		return NULL;
+	}
 	worker_info->save_worker_data->current_canvas_result = NULL;
 	log_message(LOG_HEADER"Started save worker with thread id %d", worker_info->worker_id, worker_info->thread_id);
 
@@ -21,18 +26,41 @@ void* start_save_worker(void* data)
 		RenderResult result = pop_save_stack(worker_info->worker_id);
 		CanvasInfo info = result.canvas_info;
 
-		FILE* image_file_stream = fopen(result.canvas_info.save_path, "wb");
-		if (!image_file_stream)
-		{
-			log_message(LOG_HEADER"Save worker %s failed with error couldn't open file for writing", worker_info->worker_id, info.commit_hash);
+		char timestamp[20];
+		if (strftime(timestamp, sizeof(timestamp), "%Y%m%d%H%M%S", localtime(&info.date)) == 0) {
+			log_message(LOG_HEADER"Failed to format timestamp", worker_info->worker_id);
 			continue;
 		}
-		fwrite(result.image, sizeof(uint8_t), result.image_size, image_file_stream);
+		char* save_path = malloc(8 + strlen(timestamp) + 4 + 1);
+		if (!save_path) {
+			log_message(LOG_HEADER"Failed to allocate memory for save_path", worker_info->worker_id);
+			continue;
+		}
+		strcpy(save_path, "backups/");
+		strcat(save_path, timestamp);
+		strcat(save_path, ".png");
+
+		// If we don't already have this backup rendered, add it to stack
+		if (access(save_path, F_OK) == 0) {
+			free(save_path);
+			continue;
+		}
+
+		FILE* image_file_stream = fopen(save_path, "wb");
+		if (!image_file_stream) {
+			log_message(LOG_HEADER"Save worker %d failed with error couldn't open file for writing", worker_info->worker_id, worker_info->worker_id, info.commit_hash);
+			free(save_path);
+			continue;
+		}
+		size_t written = fwrite(result.image, sizeof(uint8_t), result.image_size, image_file_stream);
+		if (written != result.image_size) {
+			log_message(LOG_HEADER"Save worker %d failed with error couldn't write the complete image", worker_info->worker_id, worker_info->worker_id, info.commit_hash);
+		}
 		fclose(image_file_stream);
+		free(save_path);
 
 		push_completed_frame(info);
 		main_thread_post((struct main_thread_work) { .func = collect_backup_stats });
 	}
-
 	return NULL;
 }

@@ -8,7 +8,7 @@
 #include <stdbool.h>
 
 // Call from main thread only
-void start_main_thread(bool start_generation, const char* repo_url, const char* log_file_name);
+void start_main_thread(bool start, const char* download_base_url, const char* repo_url, const char* log_file_name);
 
 typedef void* WorkFunction;
 typedef union {
@@ -59,13 +59,13 @@ typedef struct stack {
 
 void init_stack(Stack* stack, size_t item_size, int max_size);
 void push_stack(Stack* stack, void* item);
-void pop_stack(Stack* stack, void* item);
+int pop_stack(Stack* stack, void* item);
 void free_stack(Stack* stack);
 void terminate_and_cleanup_workers(WorkerInfo** workers, int* worker_top, WorkerType worker_type);
 
 void main_thread_post(MainThreadWork work);
 // STRICT: Call on main thread only - POST
-void start_generation(const char* repo_url, const char* log_file_name);
+void start_generation(const char* download_base_url, const char* repo_url, const char* log_file_name);
 const char* clone_and_log_repo(const char* repo_url);
 // STRICT: Call on main thread only - POST
 void stop_generation();
@@ -85,6 +85,7 @@ void remove_save_worker();
 void collect_backup_stats();
 
 // Called by download worker
+const char* get_download_base_url();
 CanvasInfo pop_download_stack(int worker_id);
 void push_render_stack(DownloadedResult result);
 // Called by render worker
