@@ -1,11 +1,12 @@
-#include "console.h"
 #include <linux/limits.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include "dlfcn.h"
+#include <dlfcn.h>
+
+#include "console.h"
 #include "main_thread.h"
 
 // NAME: start_console, ARGS: start_generation_callback, stop_generation_callback, add_worker_callback remove_worker_callback

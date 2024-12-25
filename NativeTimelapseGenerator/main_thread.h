@@ -3,9 +3,10 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <time.h>
+#include <stdbool.h>
+
 #include "canvas_saver.h"
 #include "worker_structs.h"
-#include <stdbool.h>
 
 // Call from main thread only
 void start_main_thread(bool start, const char* download_base_url, const char* repo_url, const char* log_file_name);

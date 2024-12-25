@@ -1,7 +1,8 @@
 #pragma once
-#include "worker_structs.h"
 #include <curl/curl.h>
 #include <stdint.h>
+
+#include "worker_structs.h"
 
 struct download_worker_data
 {

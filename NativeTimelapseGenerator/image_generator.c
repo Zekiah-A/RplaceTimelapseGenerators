@@ -10,11 +10,12 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <stdint.h>
-#include "image_generator.h"
-#include "main_thread.h"
-#include "console.h"
-#include "worker_structs.h"
 #include <cairo/cairo.h>
+
+#include "console.h"
+#include "main_thread.h"
+#include "image_generator.h"
+#include "worker_structs.h"
 
 #define LOG_HEADER "[render worker %d] "
 

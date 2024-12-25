@@ -1,11 +1,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "canvas_saver.h"
-#include <unistd.h> // for access and F_OK
+#include <unistd.h>
+
 #include "console.h"
 #include "main_thread.h"
 #include "worker_structs.h"
+#include "canvas_saver.h"
 
 #define LOG_HEADER "[save worker %d] "
 

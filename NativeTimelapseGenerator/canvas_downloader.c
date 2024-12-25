@@ -3,6 +3,7 @@
 #include <string.h>
 #include <curl/curl.h>
 #include <unistd.h>
+
 #include "canvas_downloader.h"
 #include "main_thread.h"
 #include "console.h"

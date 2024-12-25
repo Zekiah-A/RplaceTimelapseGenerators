@@ -1,4 +1,3 @@
-#include <git2/commit.h>
 #include <signal.h>
 #include <stdio.h>
 #include <png.h>
@@ -9,17 +8,19 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <stdbool.h>
+#include <execinfo.h>
+#include <git2.h>
+#include <git2/commit.h>
+#include <errno.h>
+#include <sqlite3.h>
+
 #include "console.h"
 #include "canvas_downloader.h"
 #include "image_generator.h"
 #include "main_thread.h"
 #include "canvas_saver.h"
 #include "worker_structs.h"
-#include <stdbool.h>
-#include <execinfo.h>
-#include <git2.h>
-#include <errno.h>
-#include <sqlite3.h>
 
 // Reads canvas list, manages jobs for workers
 #define LOG_HEADER "[main thread] "

@@ -1,7 +1,8 @@
 // Extracted code from rplace bot https://github.com/Zekiah-A/RplaceBot/blob/main/main.c
 #pragma once
-#include "worker_structs.h"
 #include <stdint.h>
+
+#include "worker_structs.h"
 
 struct region_info
 {

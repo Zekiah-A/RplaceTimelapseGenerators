@@ -1,7 +1,8 @@
 #pragma once
-#include "worker_enums.h"
 #include <stdint.h>
 #include <time.h>
+
+#include "worker_enums.h"
 
 typedef union {
 	uint8_t channels[4];

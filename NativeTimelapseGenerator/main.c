@@ -5,6 +5,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <argp.h>
+
 #include "console.h"
 #include "main_thread.h"
 
