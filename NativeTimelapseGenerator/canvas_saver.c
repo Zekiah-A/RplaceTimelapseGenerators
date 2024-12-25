@@ -21,13 +21,17 @@ void* start_save_worker(void* data)
 	log_message(LOG_HEADER"Started save worker with thread id %d", worker_info->worker_id, worker_info->thread_id);
 
 	// Enter save loop
-	while (true)
-	{
+	while (true) {
 		RenderResult result = pop_save_stack(worker_info->worker_id);
 		CanvasInfo info = result.canvas_info;
 
-		char timestamp[20];
-		if (strftime(timestamp, sizeof(timestamp), "%Y-%m-%dT%H:%M:%SZ", gmtime(&info.date)) == 0) {
+		char timestamp[64];
+		struct tm timeinfo;
+		if (gmtime_r(&info.date, &timeinfo) == NULL) {
+			log_message(LOG_HEADER"Failed to convert time to GMT", worker_info->worker_id);
+			continue;
+		}
+		if (strftime(timestamp, sizeof(timestamp), "%Y-%m-%dT%H:%M:%SZ", &timeinfo) == 0) {
 			log_message(LOG_HEADER"Failed to format timestamp", worker_info->worker_id);
 			continue;
 		}

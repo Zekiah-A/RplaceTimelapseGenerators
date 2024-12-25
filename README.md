@@ -1,10 +1,9 @@
 # RplaceTimelapseGenerators
-A collection of backup/timelapse generators for the site https://rplace.tk (https://rplace.live).
-
+A collection of backup/timelapse generators for the site https://rplace.live.
  - See the rplace server software @[RplaceServer](https://github.com/Zekiah-A/RplaceServer.git) for info on hosting your own rplace instance. 
  - See the main site codebase @[rslashplace2](https://github.com/rslashplace2/rslashplace2.github.io) for helping with rplace development.
 
-### Within this repo there are currently 3 generators.
+### Within this repo there are currently 2 generators.
  - *TimelapseGenerator indicates that the current generator has
 the functionality to produce a series of frames, either from server backuplists, or git logs.
  - *BackupGenerator indicates that this generator is only able to produce an image from an rplace canvas backup.

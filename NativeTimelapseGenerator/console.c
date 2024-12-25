@@ -132,9 +132,9 @@ void update_worker_stats(WorkerStep worker_step, int count)
 		update_worker_stats_cli(worker_step, count);
 	}
 	else {
-		int print_length = snprintf(NULL, 0, "worker_stats: %d %d", worker_step, count);
+		int print_length = snprintf(NULL, 0, "worker_stats: type: %d count: %d", worker_step, count);
 		char* print = (char*)malloc(print_length + 1);
-		snprintf(print, print_length + 1, "worker_stats: %d %d", worker_step, count);
+		snprintf(print, print_length + 1, "worker_stats: type: %d count: %d", worker_step, count);
 		printf("%s\n", print);
 		free(print);
 	}
@@ -146,9 +146,9 @@ void update_backups_stats(int backups_total, float backups_per_second, CanvasInf
 		update_backups_stats_cli(backups_total, backups_per_second, current_info);
 	}
 	else {
-		int print_length = snprintf(NULL, 0, "backups_stats: %d %f %li", backups_total, backups_per_second, current_info.date);
+		int print_length = snprintf(NULL, 0, "backups_stats: generated: %d per second: %f processing: %li", backups_total, backups_per_second, current_info.date);
 		char* print = (char*)malloc(print_length + 1);
-		snprintf(print, print_length + 1, "backups_stats: %d %f %li", backups_total, backups_per_second, current_info.date);
+		snprintf(print, print_length + 1, "backups_stats: generated: %d per second: %f processing: %li", backups_total, backups_per_second, current_info.date);
 		printf("%s\n", print);
 		free(print);
 	}

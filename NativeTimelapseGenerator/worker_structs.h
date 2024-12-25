@@ -4,7 +4,7 @@
 #include <time.h>
 
 typedef union {
-	uint8_t items[4];
+	uint8_t channels[4];
 	struct {
 		uint8_t r;
 		uint8_t g;

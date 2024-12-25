@@ -15,7 +15,7 @@ static char args_doc[] = "";
 static struct argp_option options[] = {
 	{"no-cli", 'n', 0, 0, "Disable CLI"},
 	{"repo-url", 'r', "URL", 0, "Repository URL"},
-	{"commit-hashes", 'c', "FILE", 0, "Log file name"},
+	{"commit-hashes-file", 'c', "FILE", 0, "Commit hashes file path"},
 	{"download-root-url", 'd', "URL", 0, "Download root URL"},
 	{0}
 };
@@ -69,7 +69,7 @@ static struct argp argp = {
 int main(int argc, char *argv[]) {
 	struct arguments arguments = {
 		.no_cli = false,
-		.repo_url = "https://github.com/rslashplace2/rslashplace2.github.io",
+		.repo_url = NULL,
 		.download_base_url = "https://raw.githubusercontent.com/rplacetk/canvas1",
 		.commit_hashes_file_name = NULL
 	};
