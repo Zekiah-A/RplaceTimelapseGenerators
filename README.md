@@ -1,19 +1,18 @@
 # RplaceTimelapseGenerators
-A collection of backup/timelapse generators for the site https://rplace.live.
- - See the rplace server software @[RplaceServer](https://github.com/Zekiah-A/RplaceServer.git) for info on hosting your own rplace instance. 
- - See the main site codebase @[rslashplace2](https://github.com/rslashplace2/rslashplace2.github.io) for helping with rplace development.
+A collection of backup and timelapse generators for the site [rplace.live](https://rplace.live).
+ - For information on hosting your own rplace instance, see the rplace server software at [RplaceServer](https://github.com/Zekiah-A/RplaceServer.git).
+ - To contribute to rplace development, visit the main site codebase at [rslashplace2](https://github.com/rslashplace2/rslashplace2.github.io).
 
-### Within this repo there are currently 2 generators.
- - *TimelapseGenerator indicates that the current generator has
-the functionality to produce a series of frames, either from server backuplists, or git logs.
- - *BackupGenerator indicates that this generator is only able to produce an image from an rplace canvas backup.
+### Generators in this repository
+ - **TimelapseGenerator**: Produces a series of frames from server backup lists or git logs.
+ - **BackupGenerator**: Generates an image from an rplace canvas backup.
 
-### NodeBackupGenerator
-Primitive, slow, naive and easy to run bunjs (javascript-based) generator, which can be found in [NodeBackupGenerator/](NodeBackupGenerator/downloader.js).
+### Node Backup Generator
+A simple, cross-platform Node.js (JavaScript) generator, located in [NodeBackupGenerator/](NodeBackupGenerator/downloader.js). Also, check out [colour-utils](https://github.com/rplacetk/colour-utils) for additional utilities.
 
-### Native timelapse generator
-For an extremely highly performant, UNIX only, multi threaded generator, see the C, C# hybrid native generator at [NativeTimelapseGenerator/](NativeTimelapseGenerator/).
+### Native Timelapse Generator
+A highly performant, UNIX-only, multi-threaded generator written in C and C#. Find it in [NativeTimelapseGenerator/](NativeTimelapseGenerator/).
 
 ![NativeTimelapseGenerator structure diagram](NativeTimelapseGenerator/structure.png)
 
-Dependencies and instructions on how to use each generator can be found within their respective directories.
+Dependencies and usage instructions for each generator are available in their respective directories.

@@ -37,7 +37,7 @@ update_backups_delegate update_backups_stats_cli = NULL;
 void ui_start_generation(char* download_base_url, char* repo_url, char* log_file_name)
 {
 	main_thread_post((MainThreadWork) {
-		.func = start_generation,
+		.func = (WorkFunction)start_generation,
 		.arg_count = 2,
 		.args = { download_base_url, repo_url, log_file_name }
 	});
@@ -47,11 +47,11 @@ void ui_start_generation(char* download_base_url, char* repo_url, char* log_file
 void ui_stop_generation()
 {
 	printf("Generator CLI application halted. Application will terminate immediately\n");
-	main_thread_post((MainThreadWork) { .func = stop_generation });
+	main_thread_post((MainThreadWork) { .func = (WorkFunction)stop_generation });
 }
 
-WorkFunction add_funcs[3] = { add_download_worker, add_render_worker, add_save_worker };
-WorkFunction remove_funcs[3] = { remove_download_worker, remove_render_worker, remove_save_worker };
+WorkFunction add_funcs[3] = { (WorkFunction)add_download_worker, (WorkFunction)add_render_worker, (WorkFunction)add_save_worker };
+WorkFunction remove_funcs[3] = { (WorkFunction)remove_download_worker, (WorkFunction)remove_render_worker, (WorkFunction)remove_save_worker };
 
 void ui_add_worker(int worker_type, int add)
 {
