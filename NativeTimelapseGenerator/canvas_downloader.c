@@ -108,10 +108,10 @@ struct canvas_metadata download_canvas_metadata(const char* metadata_url, CURL* 
 	for (int i = 0; i < palette_size; i++)
 	{
 		uint32_t colour_int = (uint32_t) json_array_get_number(palette_array, i);
-		metadata.palette[i].r = (uint8_t)(colour_int >> 24);
-		metadata.palette[i].g = (uint8_t)(colour_int >> 16);
-		metadata.palette[i].b = (uint8_t)(colour_int >> 8);
-		metadata.palette[i].a = (uint8_t)(colour_int & 255);
+		metadata.palette[i].r = (uint8_t)((colour_int >> 24) & 0xFF);
+		metadata.palette[i].g = (uint8_t)((colour_int >> 16) & 0xFF);
+		metadata.palette[i].b = (uint8_t)((colour_int >> 8) & 0xFF);
+		metadata.palette[i].a = (uint8_t)(colour_int & 0xFF);
 	}
 	JSON_Value* width_value = json_object_get_value(root_obj, "width");
 	metadata.width = (int) json_value_get_number(width_value);
