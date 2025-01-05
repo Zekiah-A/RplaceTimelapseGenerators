@@ -5,11 +5,7 @@
 #include <time.h>
 #include <stdbool.h>
 
-#include "canvas_saver.h"
-#include "worker_structs.h"
-
-// Call from main thread only
-void start_main_thread(bool start, const char* download_base_url, const char* repo_url, const char* log_file_name);
+#include "workers/worker_structs.h"
 
 typedef void* WorkFunction;
 typedef union {
@@ -31,10 +27,28 @@ typedef struct main_thread_queue {
 	pthread_mutex_t mutex;
 } MainThreadQueue;
 
+typedef struct config {
+	const char* repo_url;
+	const char* download_base_url;
+	const char* commit_hashes_file_name;
+	const char* game_server_base_url;
+	int max_top_placers;
+} Config;
+
 // Generic thread data for each worker
 typedef struct worker_info {
+	// Global
+	const Config* config;
+	// Per thread / worker
 	pthread_t thread_id;
 	int worker_id;
+	union
+	{
+		CanvasInfo* current_canvas_info;
+		DownloadResult* current_download_result;
+		RenderResult* current_render_result;
+	};
+	// Shared between workers
 	union
 	{
 		struct download_worker_data* download_worker_data;
@@ -64,9 +78,12 @@ int pop_stack(Stack* stack, void* item);
 void free_stack(Stack* stack);
 void terminate_and_cleanup_workers(WorkerInfo** workers, int* worker_top, WorkerType worker_type);
 
+// STRICT: Call from main thread only
+void start_main_thread(bool start, Config config);
+
 void main_thread_post(MainThreadWork work);
 // STRICT: Call on main thread only - POST
-void start_generation(const char* download_base_url, const char* repo_url, const char* log_file_name);
+void start_generation(Config config);
 const char* clone_and_log_repo(const char* repo_url);
 // STRICT: Call on main thread only - POST
 void stop_generation();
@@ -86,12 +103,11 @@ void remove_save_worker();
 void collect_backup_stats();
 
 // Called by download worker
-const char* get_download_base_url();
 CanvasInfo pop_download_stack(int worker_id);
-void push_render_stack(DownloadedResult result);
+void push_render_stack(DownloadResult result);
 // Called by render worker
-DownloadedResult pop_render_stack(int worker_id);
+DownloadResult pop_render_stack(int worker_id);
 void push_save_stack(RenderResult result);
 // Called by save worker
 RenderResult pop_save_stack(int worker_id);
-void push_completed_frame(CanvasInfo info);
+void push_completed(SaveResult result);

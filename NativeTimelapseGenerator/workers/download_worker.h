@@ -4,11 +4,10 @@
 
 #include "worker_structs.h"
 
-struct download_worker_data
+// Shared between all download workers
+typedef struct download_worker_data
 {
 	CURL* curl_handle;
-	const char* download_base_url;
-	CanvasInfo current_canvas_info;
-};
+} DownloadWorkerData;
 
 void* start_download_worker(void* data);

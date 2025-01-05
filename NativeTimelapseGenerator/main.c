@@ -2,6 +2,7 @@
 #include <pthread.h>
 #include <curl/curl.h>
 #include <stdbool.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <argp.h>
@@ -18,18 +19,19 @@ static struct argp_option options[] = {
 	{"repo-url", 'r', "URL", 0, "Repository URL"},
 	{"commit-hashes-file", 'c', "FILE", 0, "Commit hashes file path"},
 	{"download-root-url", 'd', "URL", 0, "Download root URL"},
+	{"game-server-root-url", 's', "URL", 0, "Socket server root URL (HTTP)"},
+	{"max-top-placers", 'p', "NUMBER", 0, "Max top placers listed"},
 	{0}
 };
+
 struct arguments {
+	Config;
 	bool no_cli;
-	const char* repo_url;
-	const char* download_base_url;
-	const char* commit_hashes_file_name;
 };
 
 static error_t parse_opt(int key, char* arg, struct argp_state* state) {
 	struct arguments* arguments = state->input;
-
+	
 	switch (key) {
 		case 'n':
 			arguments->no_cli = true;
@@ -42,6 +44,12 @@ static error_t parse_opt(int key, char* arg, struct argp_state* state) {
 			break;
 		case 'c':
 			arguments->commit_hashes_file_name = arg;
+			break;
+		case 's':
+			arguments->game_server_base_url = arg;
+			break;
+		case 'p':
+			arguments->max_top_placers = atoi(arg);
 			break;
 		case ARGP_KEY_ARG:
 			if (state->arg_num >= 0) {
@@ -72,7 +80,9 @@ int main(int argc, char *argv[]) {
 		.no_cli = false,
 		.repo_url = NULL,
 		.download_base_url = "https://raw.githubusercontent.com/rplacetk/canvas1",
-		.commit_hashes_file_name = NULL
+		.game_server_base_url = "https://server.rplace.live",
+		.commit_hashes_file_name = NULL,
+		.max_top_placers = 10
 	};
 
 	argp_parse(&argp, argc, argv, 0, 0, &arguments);
@@ -83,6 +93,6 @@ int main(int argc, char *argv[]) {
 	}
 
 	// Start main thread (will never return, and handle exiting itself)
-	start_main_thread(arguments.no_cli, arguments.download_base_url, arguments.repo_url, arguments.commit_hashes_file_name);
+	start_main_thread(arguments.no_cli, *(Config*) &arguments);
 	return 0;
 }

@@ -3,3 +3,4 @@ CompileFlags:
     - -Wall
     - -Wextra
     - -Wpedantic
+    - -fms-extensions

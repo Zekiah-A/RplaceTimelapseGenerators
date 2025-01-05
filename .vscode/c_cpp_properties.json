@@ -12,7 +12,8 @@
             "compilerArgs": [
                 "-Wall",
                 "-Wextra",
-                "-Wpedantic"
+                "-Wpedantic",
+                "-fms-extensions"
             ]
         }
     ],

@@ -1,5 +1,5 @@
 #pragma once
-#include "worker_structs.h"
+#include "workers/worker_structs.h"
 
 typedef enum worker_step {
 	WORKER_STEP_DOWNLOAD = 0,

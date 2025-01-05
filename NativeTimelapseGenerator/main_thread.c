@@ -16,11 +16,13 @@
 #include <sqlite3.h>
 
 #include "console.h"
-#include "canvas_downloader.h"
-#include "image_generator.h"
 #include "main_thread.h"
-#include "canvas_saver.h"
-#include "worker_structs.h"
+#include "memory_utils.h"
+
+#include "workers/worker_structs.h"
+#include "workers/download_worker.h"
+#include "workers/render_worker.h"
+#include "workers/save_worker.h"
 
 // Reads canvas list, manages jobs for workers
 #define LOG_HEADER "[main thread] "
@@ -56,10 +58,11 @@ bool render_stack_replenished = false;
 pthread_mutex_t save_pop_mutex;
 bool save_stack_replenished = false;
 
-const char* _download_base_url;
-
 // DATABASE
-sqlite3* database = NULL;
+sqlite3* _database = NULL;
+
+// CONFIG
+Config _config = { 0 };
 
 // Private
 void init_work_queue(MainThreadQueue* queue, size_t capacity)
@@ -137,6 +140,7 @@ void add_download_worker()
 	pthread_t thread_id;
 	WorkerInfo* info = (struct worker_info*) malloc(sizeof(WorkerInfo));
 	info->worker_id = ++download_worker_top;
+	info->config = &_config;
 	pthread_create(&thread_id, NULL, start_download_worker, info);
 	info->thread_id = thread_id;
 	download_workers[download_worker_top] = info;
@@ -153,7 +157,6 @@ void remove_download_worker()
 	WorkerInfo* info = download_workers[download_worker_top];
 	pthread_cancel(info->thread_id);
 	download_worker_top--;
-	free(info->download_worker_data);
 	free(info);
 	update_worker_stats(WORKER_STEP_DOWNLOAD, download_worker_top + 1);
 }
@@ -163,6 +166,7 @@ void add_render_worker()
 	pthread_t thread_id;
 	WorkerInfo* info = (WorkerInfo*) malloc(sizeof(WorkerInfo));
 	info->worker_id = ++render_worker_top;
+	info->config = &_config;
 	pthread_create(&thread_id, NULL, start_render_worker, info);
 	info->thread_id = thread_id;
 	render_workers[render_worker_top] = info;
@@ -179,7 +183,6 @@ void remove_render_worker()
 	WorkerInfo* info = render_workers[render_worker_top];
 	pthread_cancel(info->thread_id);
 	render_worker_top--;
-	free(info->render_worker_data);
 	free(info);
 	update_worker_stats(WORKER_STEP_RENDER, render_worker_top + 1);
 }
@@ -189,6 +192,7 @@ void add_save_worker()
 	pthread_t thread_id;
 	WorkerInfo* info = (WorkerInfo*) malloc(sizeof(WorkerInfo));
 	info->worker_id = ++save_worker_top;
+	info->config = &_config;
 	pthread_create(&thread_id, NULL, start_save_worker, info);
 	info->thread_id = thread_id;
 	save_workers[save_worker_top] = info;
@@ -202,10 +206,9 @@ void remove_save_worker()
 		fprintf(stderr, "Error - save worker underflow occurred\n");
 		exit(EXIT_FAILURE);
 	}
-	struct worker_info* info = save_workers[save_worker_top];
+	WorkerInfo* info = save_workers[save_worker_top];
 	pthread_cancel(info->thread_id);
 	save_worker_top--;
-	free(info->save_worker_data);
 	free(info);
 	update_worker_stats(WORKER_STEP_SAVE, save_worker_top + 1);
 }
@@ -228,7 +231,7 @@ void push_download_stack(CanvasInfo result)
 }
 
 // Called by download worker
-void push_render_stack(DownloadedResult result)
+void push_render_stack(DownloadResult result)
 {
 	push_stack(&render_stack, &result);
 }
@@ -240,23 +243,14 @@ void push_save_stack(RenderResult result)
 }
 
 // Called by save worker
-void push_completed_frame(CanvasInfo info)
+void push_completed(SaveResult result)
 {
-	CanvasInfo* heap_canvas_info = (CanvasInfo*) malloc(sizeof(CanvasInfo));
-	memcpy(heap_canvas_info, &info, sizeof(CanvasInfo));
-
-	// Remove previous heap completed canvas info, finally frees the strings that both stack/heap versions of this uses
-	if (completed_canvas_info != NULL) {
-		// TODO: Investigate segfault
-		/*free(completed_canvas_info->url);
-		free(completed_canvas_info->commit_hash);
-		free(completed_canvas_info->save_path);
-		free(completed_canvas_info);*/
-	}
+	// TODO: Reimplement this
+	fprintf(stderr,  "FIXME: Implement push completed");
 
 	completed_backups++;
 	completed_backups_since++;
-	completed_canvas_info = heap_canvas_info;
+	main_thread_post((struct main_thread_work) { .func = collect_backup_stats });
 }
 
 // Called by save worker on main thread, will forward collected info to UI thread
@@ -284,9 +278,9 @@ CanvasInfo pop_download_stack(int worker_id)
 }
 
 // Called by render worker
-DownloadedResult pop_render_stack(int worker_id)
+DownloadResult pop_render_stack(int worker_id)
 {
-	DownloadedResult result;
+	DownloadResult result;
 	while (pop_stack(&render_stack, &result) == 1) {
 		usleep(10000); // Wait for 10ms
 	}
@@ -610,7 +604,7 @@ int database_create_callback(void *data, int argc, char **argv, char **col_name)
 	return 0;
 }
 
-bool try_create_database()
+bool try_create_database(sqlite3* database)
 {
 	char* err_msg = NULL;
 	const char* schema_file = "schema.sql";
@@ -636,7 +630,7 @@ bool try_create_database()
 	rewind(file);
 
 	// Allocate memory to hold the schema content
-	char* sql = (char*)malloc(file_size + 1);
+	AUTOFREE char* sql = (char*)malloc(file_size + 1);
 	if (sql == NULL) {
 		log_message(LOG_HEADER"Memory allocation failed\n");
 		fclose(file);
@@ -654,35 +648,29 @@ bool try_create_database()
 	if (result != SQLITE_OK) {
 		log_message(LOG_HEADER"Failed to create database: %s\n", err_msg);
 		sqlite3_free(err_msg);
-		free(sql);
 		sqlite3_close(database);
 		return false;
 	}
 
-	free(sql);
 	return true;
 }
 
-const char* get_download_base_url()
-{
-	return _download_base_url;
-}
-
 // Start all workers, initiate rendering backups
-void start_generation(const char* download_base_url, const char* repo_url, const char* log_file_name)
+void start_generation(Config config)
 {
-	_download_base_url = download_base_url;
-
-	if (!try_create_database()) {
+	if (!try_create_database(_database)) {
 		stop_console();
 		log_message(LOG_HEADER"Error creating database\n");
 		exit(EXIT_FAILURE);
 	}
+	_config = config;
 
 	// Either source commit info from commit hashes or repo URL
 	log_message(LOG_HEADER"Starting generation process...");
-	if (repo_url) {
-		log_file_name = get_repo_commit_hashes(repo_url);
+
+	const char* log_file_name = NULL;
+	if (config.repo_url) {
+		log_file_name = get_repo_commit_hashes(config.repo_url);
 	}
 	if (!log_file_name) {
 		stop_console();
@@ -776,7 +764,7 @@ void safe_segfault_exit(int sig_num)
 	exit(EXIT_FAILURE);
 }
 
-void start_main_thread(bool start, const char* download_base_url, const char* repo_url, const char* log_file_name)
+void start_main_thread(bool start, Config config)
 {
 	signal(SIGSEGV, safe_segfault_exit);
 	curl_global_init(CURL_GLOBAL_DEFAULT);
@@ -784,11 +772,11 @@ void start_main_thread(bool start, const char* download_base_url, const char* re
 
 	init_work_queue(&work_queue, MAIN_THREAD_QUEUE_SIZE);
 	init_stack(&download_stack, sizeof(CanvasInfo), STACK_SIZE_MAX);
-	init_stack(&render_stack, sizeof(DownloadedResult), STACK_SIZE_MAX);
+	init_stack(&render_stack, sizeof(DownloadResult), STACK_SIZE_MAX);
 	init_stack(&save_stack, sizeof(RenderResult), STACK_SIZE_MAX);
 
 	if (start) {
-		start_generation(download_base_url, repo_url, log_file_name);
+		start_generation(config);
 	}
 	while (true) {
 		// Will wait for work to arrive via work queue, at which point

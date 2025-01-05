@@ -1,4 +1,3 @@
-// Modified code from rplace bot https://github.com/Zekiah-A/RplaceBot/blob/main/main.c
 #include <math.h>
 #include <stdio.h>
 #include <png.h>
@@ -12,10 +11,12 @@
 #include <stdint.h>
 #include <cairo/cairo.h>
 
-#include "console.h"
-#include "main_thread.h"
-#include "image_generator.h"
 #include "worker_structs.h"
+#include "render_worker.h"
+
+#include "../console.h"
+#include "../main_thread.h"
+#include "../lib/stb/stb_ds.h"
 
 #define LOG_HEADER "[render worker %d] "
 
@@ -54,6 +55,9 @@ Colour default_palette[32] = {
 	{ .r = 255, .g = 255, .b = 255, .a = 255 }
 };
 
+const Config* _config;
+RenderWorkerData* _worker_data;
+
 cairo_status_t cairo_write(void* closure, const unsigned char* data, unsigned int length)
 {
     FILE* stream = (FILE*) closure;
@@ -62,6 +66,19 @@ cairo_status_t cairo_write(void* closure, const unsigned char* data, unsigned in
     }
 
     return CAIRO_STATUS_SUCCESS;
+}
+
+RenderResult generate_top_placers_image(Placer* top_placers, int top_placers_size)
+{
+	RenderResult result = { .error = GENERATION_ERROR_NONE, .error_msg = NULL };
+	
+	// [name] (#[ID]) 10000 pixels
+}
+
+RenderResult generate_canvas_control_image()
+{
+	RenderResult result = { .error = GENERATION_ERROR_NONE, .error_msg = NULL };
+	return result;
 }
 
 RenderResult generate_date_image(time_t date, int style)
@@ -244,29 +261,37 @@ RenderResult generate_canvas_image(int width, int height, uint8_t* board, int pa
 	return result;
 }
 
+RenderResult render(DownloadResult download_result)
+{
+	RenderResult result = generate_canvas_image(download_result.width, download_result.height,
+		download_result.canvas, download_result.palette_size, download_result.palette);
+	RenderResult date_result = generate_date_image(download_result.canvas_info.date, 0);
+	result.date_image = date_result.date_image;
+	result.date_image_size = date_result.date_image_size;
+	result.canvas_info = download_result.canvas_info;
+	return result;
+}
+
 void* start_render_worker(void* data)
 {
+	// Initialise worker / thread globals
 	WorkerInfo* worker_info = (WorkerInfo*) data;
-	worker_info->render_worker_data = (struct render_worker_data*) malloc(sizeof(struct render_worker_data));
-	worker_info->render_worker_data->current_canvas_result = NULL;
+	_config = worker_info->config;
+	_worker_data = worker_info->render_worker_data;
+
+
 	log_message(LOG_HEADER"Started render worker with thread id %d", worker_info->worker_id, worker_info->thread_id);
 
+	// Enter render loop
 	while (true) {
-		DownloadedResult download_result = pop_render_stack(worker_info->worker_id);
+		DownloadResult download_result = pop_render_stack(worker_info->worker_id);
 		CanvasInfo info = download_result.canvas_info;
-		RenderResult result = generate_canvas_image(download_result.width, download_result.height,
-			download_result.canvas, download_result.palette_size, download_result.palette);
-		free(download_result.canvas); // safe to delete data from last step now we don't need it
-		if (result.error)
-		{
+
+		RenderResult result = render(download_result);
+		if (result.error) {
 			log_message(LOG_HEADER"Render %s failed with error %d message %s", worker_info->worker_id, info.commit_hash, result.error, result.error_msg);
 			continue;
 		}
-
-		RenderResult date_result = generate_date_image(info.date, 0);
-		result.date_image = date_result.date_image;
-		result.date_image_size = date_result.date_image_size;
-		result.canvas_info = download_result.canvas_info;
 		push_save_stack(result);
 	}
 	return NULL;
