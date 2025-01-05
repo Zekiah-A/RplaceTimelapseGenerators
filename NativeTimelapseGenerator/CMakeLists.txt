@@ -1,24 +1,27 @@
 cmake_minimum_required(VERSION 3.31)
 project(NativeTimelapseGenerator)
 
-# Set C standard to the latest (C23)
+# Set C standard to 23
 set(CMAKE_C_STANDARD 23)
+
+# Enable MS extensions
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fms-extensions")
 
 # Include directories
 include_directories(${CMAKE_SOURCE_DIR})
 
 # Manually add source files
 set(SOURCE_FILES
-    ${CMAKE_SOURCE_DIR}/canvas_downloader.c
-    ${CMAKE_SOURCE_DIR}/canvas_saver.c
-    ${CMAKE_SOURCE_DIR}/console.c
-    ${CMAKE_SOURCE_DIR}/image_generator.c
     ${CMAKE_SOURCE_DIR}/main.c
     ${CMAKE_SOURCE_DIR}/main_thread.c
+    ${CMAKE_SOURCE_DIR}/workers/download_worker.c
+    ${CMAKE_SOURCE_DIR}/workers/save_worker.c
+    ${CMAKE_SOURCE_DIR}/workers/render_worker.c
+    ${CMAKE_SOURCE_DIR}/console.c
 )
 
 # Add subdirectory for parson library
-add_subdirectory(${CMAKE_SOURCE_DIR}/parson)
+add_subdirectory(${CMAKE_SOURCE_DIR}/lib/parson)
 
 # Find libgit2 package
 find_package(PkgConfig REQUIRED)

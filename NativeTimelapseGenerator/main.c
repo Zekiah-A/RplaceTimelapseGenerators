@@ -77,12 +77,12 @@ static struct argp argp = {
 
 int main(int argc, char *argv[]) {
 	struct arguments arguments = {
-		.no_cli = false,
 		.repo_url = NULL,
 		.download_base_url = "https://raw.githubusercontent.com/rplacetk/canvas1",
 		.game_server_base_url = "https://server.rplace.live",
 		.commit_hashes_file_name = NULL,
-		.max_top_placers = 10
+		.max_top_placers = 10,
+		.no_cli = false
 	};
 
 	argp_parse(&argp, argc, argv, 0, 0, &arguments);

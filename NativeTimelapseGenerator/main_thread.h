@@ -71,11 +71,11 @@ typedef struct stack {
 	pthread_mutex_t mutex;
 	bool replenished;
 } Stack;
-
 void init_stack(Stack* stack, size_t item_size, int max_size);
 void push_stack(Stack* stack, void* item);
 int pop_stack(Stack* stack, void* item);
 void free_stack(Stack* stack);
+
 void terminate_and_cleanup_workers(WorkerInfo** workers, int* worker_top, WorkerType worker_type);
 
 // STRICT: Call from main thread only
