@@ -11,7 +11,7 @@
 #include "memory_utils.h"
 
 // NAME: start_console, ARGS: start_generation_callback, stop_generation_callback, add_worker_callback remove_worker_callback
-typedef void (*start_console_delegate)(void*, void*, void*, void*);
+typedef void (*start_console_delegate)(void(*)(char*, char*, char*), void (*)(void), void (*)(int, int), void (*)(int, int));
 // NAME: log_message, ARGS: char* message
 typedef void (*log_message_delegate)(char*);
 // NAME: stop_console
@@ -28,11 +28,12 @@ stop_console_delegate stop_console_cli = NULL;
 update_worker_stats_delegate update_worker_stats_cli = NULL;
 update_backups_delegate update_backups_stats_cli = NULL;
 
-#ifdef DEBUG
-#define CONSOLE_LIB_NAME "NativeTimelapseGenerator.Console.so.dbg"
-#else
+// TODO: For some reason the dbg so doesn't contain any exports?
+//#ifdef DEBUG
+//#define CONSOLE_LIB_NAME "NativeTimelapseGenerator.Console.so.dbg"
+//#else
 #define CONSOLE_LIB_NAME "NativeTimelapseGenerator.Console.so"
-#endif
+//#endif
 
 // We still in UI thread, must pass back to main thread
 void ui_start_generation(char* download_base_url, char* repo_url, char* log_file_name)
@@ -68,7 +69,7 @@ void ui_remove_worker(int worker_type, int remove)
 	}
 }
 
-void* start_console(void* data)
+void* start_console(void* _)
 {
 	char lib_path[PATH_MAX];
 	getcwd(lib_path, sizeof(lib_path));
@@ -78,14 +79,29 @@ void* start_console(void* data)
 	strcat(lib_path, CONSOLE_LIB_NAME);
 
 	handle = dlopen(lib_path, RTLD_LAZY);
-	start_console_cli = dlsym(handle, "start_console");
-	log_message_cli = dlsym(handle, "log_message");
-	stop_console_cli = dlsym(handle, "stop_console");
-	update_worker_stats_cli = dlsym(handle, "update_worker_stats");
-	update_backups_stats_cli = dlsym(handle, "update_backups_stats");
-	if (start_console_cli == NULL || log_message_cli == NULL || stop_console_cli == NULL || update_worker_stats_cli == NULL || update_backups_stats_cli == NULL) {
-		fprintf(stderr, "Error - Start console library couldn't be loaded! Method binding failed\n");
+	if (!handle) {
+		fprintf(stderr, "Error - Unable to load library: %s\n", dlerror());
 		exit(EXIT_FAILURE);
+	}
+	start_console_cli = dlsym(handle, "start_console");
+	if (!start_console_cli) {
+		fprintf(stderr, "Error - Unable to find 'start_console' symbol: %s\n", dlerror());
+	}
+	log_message_cli = dlsym(handle, "log_message");
+	if (!log_message_cli) {
+		fprintf(stderr, "Error - Unable to find 'log_message' symbol: %s\n", dlerror());
+	}
+	stop_console_cli = dlsym(handle, "stop_console");
+	if (!stop_console_cli) {
+		fprintf(stderr, "Error - Unable to find 'stop_console' symbol: %s\n", dlerror());
+	}
+	update_worker_stats_cli = dlsym(handle, "update_worker_stats");
+	if (!update_worker_stats_cli) {
+		fprintf(stderr, "Error - Unable to find 'update_worker_stats' symbol: %s\n", dlerror());
+	}
+	update_backups_stats_cli = dlsym(handle, "update_backups_stats");
+	if (!update_backups_stats_cli) {
+		fprintf(stderr, "Error - Unable to find 'update_backups_stats' symbol: %s\n", dlerror());
 	}
 
 	start_console_cli(&ui_start_generation, &ui_stop_generation, &ui_add_worker, &ui_remove_worker);

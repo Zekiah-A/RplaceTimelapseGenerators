@@ -5,9 +5,14 @@
 #include "worker_structs.h"
 
 // Shared between all download workers
-typedef struct download_worker_data
+typedef struct download_worker_shared
+{
+} DownloadWorkerShared;
+
+// Instance / worker / per thread members
+typedef struct download_worker_instance
 {
 	CURL* curl_handle;
-} DownloadWorkerData;
+} DownloadWorkerInstance;
 
 void* start_download_worker(void* data);

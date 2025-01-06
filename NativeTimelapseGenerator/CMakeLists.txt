@@ -27,6 +27,7 @@ include_directories(${CMAKE_SOURCE_DIR})
 # Manually add source files
 set(SOURCE_FILES
 	${CMAKE_SOURCE_DIR}/main.c
+	${CMAKE_SOURCE_DIR}/memory_utils.c
 	${CMAKE_SOURCE_DIR}/main_thread.c
 	${CMAKE_SOURCE_DIR}/workers/download_worker.c
 	${CMAKE_SOURCE_DIR}/workers/save_worker.c
@@ -58,14 +59,14 @@ add_executable(${PROJECT_NAME} ${SOURCE_FILES})
 target_link_libraries(${PROJECT_NAME} png curl m parson ${LIBGIT2_LIBRARIES} SQLite::SQLite3 ${CAIRO_LIBRARIES})
 
 # Detect C# source files
-file(GLOB_RECURSE CSHARP_SOURCES ${CMAKE_SOURCE_DIR}/../NativeTimelapseGenerator.Console/**/*.cs)
+#file(GLOB_RECURSE CSHARP_SOURCES ${CMAKE_SOURCE_DIR}/../NativeTimelapseGenerator.Console/**/*.cs)
 
 # Custom command to build C# project
 add_custom_command(
 	OUTPUT ${CMAKE_SOURCE_DIR}/../NativeTimelapseGenerator.Console/bin/Release/net9.0/linux-x64/publish/NativeTimelapseGenerator.Console.so
 	COMMAND dotnet publish -r linux-x64 -c Release
 	WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/../NativeTimelapseGenerator.Console
-	DEPENDS ${CSHARP_SOURCES} # Add C# sources as dependencies
+	#DEPENDS ${CSHARP_SOURCES} # Add C# sources as dependencies
 	COMMENT "Building C# project"
 )
 
@@ -92,7 +93,16 @@ add_custom_command(
 	COMMENT "Copying schema.sql to build directory"
 )
 
-# Build all target
+# Custom command to copy example_commit_hashes.txt
+add_custom_command(
+	TARGET ${PROJECT_NAME} POST_BUILD
+	COMMAND ${CMAKE_COMMAND} -E copy
+	${CMAKE_SOURCE_DIR}/example_commit_hashes.txt
+	${CMAKE_BINARY_DIR}/example_commit_hashes.txt
+	COMMENT "Copying example_commit_hashes.txt to build directory"
+)
+
+# Build all targets
 add_custom_target(build_all
 	DEPENDS build_csharp ${PROJECT_NAME}
 )

@@ -10,5 +10,5 @@ typedef enum worker_step {
 void update_worker_stats(WorkerStep worker_step, int count);
 void update_backups_stats(int backups_total, float backups_per_second, CanvasInfo current_info);
 void log_message(const char* format, ...);
-void* start_console(void* data);
+void* start_console(void*);
 void stop_console();

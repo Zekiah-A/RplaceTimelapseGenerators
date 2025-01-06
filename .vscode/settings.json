@@ -1,3 +1,3 @@
 {
-    "cmake.sourceDirectory": "/home/zekiah/RplaceTimelapseGenerators/NativeTimelapseGenerator"
+    "cmake.sourceDirectory": "${workspaceFolder}/NativeTimelapseGenerator"
 }

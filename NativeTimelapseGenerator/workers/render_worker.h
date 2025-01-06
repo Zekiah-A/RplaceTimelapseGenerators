@@ -11,7 +11,13 @@ struct region_info
 };
 
 // Shared between all render workers
-typedef struct render_worker_data
+typedef struct render_worker_shared
 {
-} RenderWorkerData;
+} RenderWorkerShared;
+
+// Instance / worker / per thread members
+typedef struct render_worker_instance
+{
+} RenderWorkerInstance;
+
 void* start_render_worker(void* data);

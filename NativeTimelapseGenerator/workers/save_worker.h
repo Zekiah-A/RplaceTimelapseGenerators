@@ -4,6 +4,11 @@
 // Shared between all save workers
 typedef struct save_worker_data
 {
-} SaveWorkerData;
+} SaveWorkerShared;
+
+// Instance / worker / per thread members
+typedef struct save_worker_instance
+{
+} SaveWorkerInstance;
 
 void* start_save_worker(void* data);

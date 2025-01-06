@@ -5,7 +5,6 @@
 #include "worker_enums.h"
 
 // Cross-worker structs
-
 typedef union {
 	uint8_t channels[4];
 	struct {
@@ -34,6 +33,15 @@ typedef struct placer {
 
 
 // Pipeline worker structs
+typedef struct error {
+	union {
+		DownloadError download_error;
+		RenderError render_error;
+		SaveError save_error;
+	};
+	// Must be mutable, may be freed by error handler
+	char* error_msg;
+} Error;
 
 typedef struct canvas_info {
 	char* commit_hash;
@@ -41,9 +49,9 @@ typedef struct canvas_info {
 } CanvasInfo;
 
 typedef struct downloaded_result {
+	Error;
 	CanvasInfo canvas_info;
 
-	DownloadError error;
 	int width;
 	int height;
 	int palette_size;
@@ -54,27 +62,26 @@ typedef struct downloaded_result {
 	uint32_t* placers;
 	size_t top_placers_size;
 	Placer* top_placers;
-	// must be mutable, may be freed by error handler
-	char* error_msg;
 } DownloadResult;
 
 typedef struct render_result {
+	Error;
 	CanvasInfo canvas_info;
 	DownloadResult download_result;
 
-	GenerationError error;
-	int image_size;
-	uint8_t* image;
-	int date_image_size;
+	uint8_t* canvas_image;
+	int canvas_image_size;
 	uint8_t* date_image;
-	// must be mutable, may be freed by error handler
-	char* error_msg;
+	int date_image_size;
+	uint8_t* top_placers_image;
+	int top_placers_image_size;
+	uint8_t* canvas_control_image;
+	int canvas_control_image_size;
 } RenderResult;
 
 typedef struct save_result {
+	Error;
 	CanvasInfo canvas_info;
 	DownloadResult download_result;
 	RenderResult render_result;
-	// must be mutable, may be freed by error handler
-	char* error_msg;
 } SaveResult;

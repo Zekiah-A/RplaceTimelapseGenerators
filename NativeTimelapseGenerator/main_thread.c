@@ -64,6 +64,11 @@ sqlite3* _database = NULL;
 // CONFIG
 Config _config = { 0 };
 
+// Worker datas
+DownloadWorkerShared _download_worker_shared;
+RenderWorkerShared _render_worker_shared;
+SaveWorkerShared _save_worker_shared;
+
 // Private
 void init_work_queue(MainThreadQueue* queue, size_t capacity)
 {
@@ -138,11 +143,15 @@ int flines(FILE* file)
 void add_download_worker()
 {
 	pthread_t thread_id;
-	WorkerInfo* info = (struct worker_info*) malloc(sizeof(WorkerInfo));
-	info->worker_id = ++download_worker_top;
-	info->config = &_config;
+	WorkerInfo* info = (WorkerInfo*) malloc(sizeof(WorkerInfo));
+	info->worker_id = ++download_worker_top;	
 	pthread_create(&thread_id, NULL, start_download_worker, info);
 	info->thread_id = thread_id;
+
+	info->config = &_config;
+	info->download_worker_shared = &_download_worker_shared;
+	info->download_worker_instance = (DownloadWorkerInstance) { };
+
 	download_workers[download_worker_top] = info;
 	update_worker_stats(WORKER_STEP_DOWNLOAD, download_worker_top + 1);
 }
@@ -166,9 +175,13 @@ void add_render_worker()
 	pthread_t thread_id;
 	WorkerInfo* info = (WorkerInfo*) malloc(sizeof(WorkerInfo));
 	info->worker_id = ++render_worker_top;
-	info->config = &_config;
 	pthread_create(&thread_id, NULL, start_render_worker, info);
 	info->thread_id = thread_id;
+
+	info->config = &_config;
+	info->render_worker_shared = &_render_worker_shared;
+	info->render_worker_instance = (RenderWorkerInstance) { };
+
 	render_workers[render_worker_top] = info;
 	update_worker_stats(WORKER_STEP_RENDER, render_worker_top + 1);
 }
@@ -192,9 +205,13 @@ void add_save_worker()
 	pthread_t thread_id;
 	WorkerInfo* info = (WorkerInfo*) malloc(sizeof(WorkerInfo));
 	info->worker_id = ++save_worker_top;
-	info->config = &_config;
 	pthread_create(&thread_id, NULL, start_save_worker, info);
 	info->thread_id = thread_id;
+
+	info->config = &_config;
+	info->save_worker_shared = &_save_worker_shared;
+	info->save_worker_instance = (SaveWorkerInstance) { };
+
 	save_workers[save_worker_top] = info;
 	update_worker_stats(WORKER_STEP_SAVE, save_worker_top + 1);
 }
@@ -298,30 +315,11 @@ RenderResult pop_save_stack(int worker_id)
 }
 
 #define MAX_HASHES_LINE_LEN 256
-#define EXPECT_COMMIT_LINE 0
-#define EXPECT_AUTHOR_LINE 1
-#define EXPECT_DATE_LINE 2
-const char* expects[] = { "Commit", "Author", "Date" };
 
-// Commit: ...\n, Author: ...\n, Date: ...\n, top is most recent, bottom of log is longest ago
-//  - Both files have been manually assimilated into commit_hashes.txt
-//  - canvas_1_commit_hashes.txt - only process commits from "root", from after 1672531200,
-//  - commit (1672531012, 48a24088916a63319a56c245a0290d66cf29e076) is the first commit (Jan 1st), 2023
-//  - repo_commit_hashes.txt - Only process commits from "nebulus"
-// Fetch methods
-// - https://raw.githubusercontent.com/rslashplace2/rslashplace2.github.io/82153c44c6a3cd3f248c3cd20f1ce6b7f0ce4b1e/place
-// - https://github.com/rslashplace2/rslashplace2.github.io/blob/82153c44c6a3cd3f248c3cd20f1ce6b7f0ce4b1e/place?raw=true
-// - https://github.com/rslashplace2/rslashplace2.github.io/raw/82153c44c6a3cd3f248c3cd20f1ce6b7f0ce4b1e/place
-// Example:
-// Commit: 49fdda2c4f38f7afd8af2c178b450e8f0fcae65b
-// Author: nebulus
-// Date: 1704298864
 // STRICT: Called by main thread
 void* read_commit_hashes(FILE* file)
 {
-	int expect = EXPECT_COMMIT_LINE;
-	long file_lines = flines(file);
-	CanvasInfo new_canvas_info = {};
+	CanvasInfo new_canvas_info = { 0 };
 	char line[MAX_HASHES_LINE_LEN];
 	char* result = NULL;
 	int line_index = 0;
@@ -336,69 +334,35 @@ void* read_commit_hashes(FILE* file)
 			continue;
 		}
 
-		if (strncmp(result, "Commit: ", 8) == 0) {
-			if (expect != EXPECT_COMMIT_LINE) {
-				log_message("(Line %d:%s) expected %s property, skipping", line_index, line, expects[expect]);
-				continue;
-			}
-			
+		if (strncmp(result, "Commit: ", 8) == 0) {			
 			int hash_len = result_len - 8;
 			char* commit_hash = malloc(hash_len + 1);
 			strcpy(commit_hash, result + 8);
 			new_canvas_info.commit_hash = commit_hash;            
-			expect = EXPECT_AUTHOR_LINE;
-		}
-		else if (strncmp(result, "Author: ", 8) == 0) {
-			if (expect != EXPECT_AUTHOR_LINE) {
-				log_message("(Line %d:%s) expected %s property, skipping", line_index, line, expects[expect]);
-				continue;
-			}
-
-			char* author = result + 8;
-			// HACK: Use author to determine the repo URL of the backup
-			if (strcmp(author, "root") != 0 && strcmp(author, "nebulus") != 0) {
-				log_message("(Line %d:%s) commit is not from server push. Ignoring", line_index, line);
-				// Ignore this commit, it is not a canvas push
-				expect = EXPECT_COMMIT_LINE;
-				memset(&new_canvas_info, 0, sizeof(CanvasInfo)); // Wipe for reuse
-				continue;
-			}
-
-			expect = EXPECT_DATE_LINE;
 		}
 		else if (strncmp(result, "Date: ", 6) == 0) {
-			if (expect != EXPECT_DATE_LINE) {
-				log_message("(Line %d:%s) expected %s property, skipping", line_index, line, expects[expect]);
-				continue;
-			}
-
 			int date_len = strlen(result) - 6;
 			char* date = malloc(date_len + 1);
 			strcpy(date, result + 6);
 			time_t date_int = strtoll(date, NULL, 10);
 			new_canvas_info.date = date_int;
 
+			// Proceed
 			push_download_stack(new_canvas_info);
 			memset(&new_canvas_info, 0, sizeof(CanvasInfo)); // Wipe for reuse
 
-			if (download_stack.top >= STACK_SIZE_MAX - 4) { // HACK: -4 For some reaason it still overflows and adds too many. Concurrency bug?
+			if (download_stack.top >= STACK_SIZE_MAX) {
 				// We will come back later
 				log_message(LOG_HEADER"Bufferred %d commit records into download stack. Pausing until needs replenish", download_stack.top + 1);
 				break;
 			}
-
-			expect = EXPECT_COMMIT_LINE;
-		}
-		else {
-			stop_console();
-			fprintf(stderr, "(Line %d:%s) Failed to read commit hashes, invalid character\n", line_index, line);
-			exit(EXIT_FAILURE);
 		}
 	}
+
 	if (download_stack.top < 0) {
 		stop_console();
 		fprintf(stderr, "Could not find any unprocessed backups from commit_hashes.txt\n");
-		exit(EXIT_FAILURE);
+		exit(EXIT_SUCCESS);
 	}
 	return NULL;
 }
@@ -658,17 +622,32 @@ bool try_create_database(sqlite3* database)
 // Start all workers, initiate rendering backups
 void start_generation(Config config)
 {
+	// Create database
 	if (!try_create_database(_database)) {
 		stop_console();
 		log_message(LOG_HEADER"Error creating database\n");
 		exit(EXIT_FAILURE);
 	}
+
+	// Create curl
 	_config = config;
+	curl_global_init(CURL_GLOBAL_DEFAULT);
+	CURL* curl = curl_easy_init();
+	if (curl == NULL) {
+		stop_console();
+		log_message(LOG_HEADER"Error initialising curl\n");
+		exit(EXIT_FAILURE);
+	}
+
+	// Create shared worker datas
+	_download_worker_shared = (DownloadWorkerShared) { };
+	_render_worker_shared = (RenderWorkerShared) { };
+	_save_worker_shared = (SaveWorkerShared) { };
 
 	// Either source commit info from commit hashes or repo URL
 	log_message(LOG_HEADER"Starting generation process...");
 
-	const char* log_file_name = NULL;
+	const char* log_file_name = config.commit_hashes_file_name;
 	if (config.repo_url) {
 		log_file_name = get_repo_commit_hashes(config.repo_url);
 	}
@@ -723,6 +702,14 @@ void start_generation(Config config)
 	log_message(LOG_HEADER"Backup generation started.");
 }
 
+void terminate_and_cleanup_workers(WorkerInfo** workers, int* worker_top)
+{
+	for (int i = 0; i <= *worker_top; i++) {
+		free(workers[i]);
+	}
+	*worker_top = -1;
+}
+
 // Often called by UI. Cleanly shutdown generation side of program, will cleanup all resources
 void stop_generation()
 {
@@ -736,9 +723,9 @@ void stop_generation()
 	free_stack(&save_stack);
 
 	// Terminate and cleanup all workers
-	terminate_and_cleanup_workers(download_workers, &download_worker_top, DOWNLOAD_WORKER_TYPE);
-	terminate_and_cleanup_workers(render_workers, &render_worker_top, RENDER_WORKER_TYPE);
-	terminate_and_cleanup_workers(save_workers, &save_worker_top, SAVE_WORKER_TYPE);
+	terminate_and_cleanup_workers(download_workers, &download_worker_top);
+	terminate_and_cleanup_workers(render_workers, &render_worker_top);
+	terminate_and_cleanup_workers(save_workers, &save_worker_top);
 
 	// Cleanup globals
 	curl_global_cleanup();
@@ -767,7 +754,6 @@ void safe_segfault_exit(int sig_num)
 void start_main_thread(bool start, Config config)
 {
 	signal(SIGSEGV, safe_segfault_exit);
-	curl_global_init(CURL_GLOBAL_DEFAULT);
 	completed_backups_date = time(0);
 
 	init_work_queue(&work_queue, MAIN_THREAD_QUEUE_SIZE);
@@ -822,74 +808,4 @@ void start_main_thread(bool start, Config config)
 				exit(EXIT_FAILURE);
 		}
 	}
-}
-
-void init_stack(Stack* stack, size_t item_size, int max_size)
-{
-	stack->items = malloc(item_size * max_size);
-	stack->item_size = item_size;
-	stack->top = -1;
-	stack->max_size = max_size;
-	pthread_mutex_init(&stack->mutex, NULL);
-	stack->replenished = false;
-}
-
-void push_stack(Stack* stack, void* item)
-{
-	pthread_mutex_lock(&stack->mutex);
-
-	if (stack->top >= stack->max_size - 1) {
-		stop_console();
-		fprintf(stderr, "Error - stack overflow occurred\n");
-		pthread_mutex_unlock(&stack->mutex);
-		exit(EXIT_FAILURE);
-	}
-
-	stack->top++;
-	memcpy((char*)stack->items + stack->top * stack->item_size, item, stack->item_size);
-	stack->replenished = true;
-
-	pthread_mutex_unlock(&stack->mutex);
-}
-
-int pop_stack(Stack* stack, void* item)
-{
-	pthread_mutex_lock(&stack->mutex);
-
-	if (stack->top < 0) {
-		memset(item, 0, stack->item_size);
-		pthread_mutex_unlock(&stack->mutex);
-		return 1;
-	}
-
-	memcpy(item, (char*)stack->items + stack->top * stack->item_size, stack->item_size);
-	stack->top--;
-
-	pthread_mutex_unlock(&stack->mutex);
-	return 0;
-}
-
-void free_stack(Stack* stack)
-{
-	free(stack->items);
-	pthread_mutex_destroy(&stack->mutex);
-}
-
-void terminate_and_cleanup_workers(WorkerInfo** workers, int* worker_top, WorkerType worker_type)
-{
-	for (int i = 0; i <= *worker_top; i++) {
-		if (worker_type == DOWNLOAD_WORKER_TYPE) {
-			curl_easy_cleanup(workers[i]->download_worker_data->curl_handle);
-			free(workers[i]->download_worker_data);
-		}
-		else if (worker_type == RENDER_WORKER_TYPE) {
-			free(workers[i]->render_worker_data);
-		}
-		else if (worker_type == SAVE_WORKER_TYPE) {
-			free(workers[i]->save_worker_data);
-		}
-		pthread_cancel(workers[i]->thread_id);
-		free(workers[i]);
-	}
-	*worker_top = -1;
 }
