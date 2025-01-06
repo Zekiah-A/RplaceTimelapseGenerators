@@ -471,8 +471,8 @@ void append_new_commits_to_log(git_repository* repo, const char* log_file_name)
 		const char* commit_hash = git_oid_tostr_s(&oid);
 		const char* author_name = git_commit_author(commit)->name;
 		git_time_t commit_time = git_commit_time(commit);
-		char commit_date[20];
-		snprintf(commit_date, sizeof(commit_date), "%ld", commit_time);
+		AUTOFREE char* commit_date = NULL;
+		asprintf(&commit_date, "%ld", commit_time);
 
 		fprintf(log_file, "Commit: %s\nAuthor: %s\nDate: %s\n", commit_hash, author_name, commit_date);
 		commit_count++;
@@ -573,8 +573,8 @@ const char* get_repo_commit_hashes(const char* repo_url)
 		const char* commit_hash = git_oid_tostr_s(&oid);
 		const char* author_name = git_commit_author(commit)->name;
 		git_time_t commit_time = git_commit_time(commit);
-		char commit_date[20];
-		snprintf(commit_date, sizeof(commit_date), "%ld", commit_time);
+		AUTOFREE char* commit_date = NULL;
+		asprintf(&commit_date, "%ld", commit_time);
 
 		fprintf(log_file, "Commit: %s\nAuthor: %s\nDate: %s\n", commit_hash, author_name, commit_date);
 		commit_count++;
@@ -748,15 +748,15 @@ void stop_generation()
 
 void safe_segfault_exit(int sig_num)
 {
-	void* array[10];
-	size_t size;
+	size_t size = 0;
+	void* stack_pointers[10];
 
 	// get void*'s for all entries on the stack
-	size = backtrace(array, 10);
+	size = backtrace(stack_pointers, 10);
 
 	// print out all the frames to stderr
 	fprintf(stderr, "Error: signal %d:\n", sig_num);
-	backtrace_symbols_fd(array, size, STDERR_FILENO);
+	backtrace_symbols_fd(stack_pointers, size, STDERR_FILENO);
 
 	stop_console();
 	fprintf(stderr, "Fatal - Segmentation fault\n");

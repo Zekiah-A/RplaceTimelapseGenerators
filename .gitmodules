@@ -1,3 +1,6 @@
 [submodule "NativeTimelapseGenerator/parson"]
 	path = NativeTimelapseGenerator/parson
 	url = https://github.com/kgabis/parson
+[submodule "Terminal.Gui"]
+	path = Terminal.Gui
+	url = https://github.com/gui-cs/Terminal.Gui

@@ -12,14 +12,11 @@
 
 #define LOG_HEADER "[save worker %d] "
 
-const Config* _config;
-SaveWorkerData* _worker_data;
-
 SaveResult save(RenderResult render_result)
 {
 	SaveResult result = {
 		.canvas_info = render_result.canvas_info,
-		.download_result =  render_result.download_result,
+		.download_result = render_result.download_result,
 		.render_result = render_result,
 		.error_msg = NULL
 	};
@@ -34,10 +31,9 @@ SaveResult save(RenderResult render_result)
 		result.error_msg = strdup("Failed to format timestamp");
 		return result;
 	}
-	AUTOFREE char* save_path = malloc(8 + strlen(timestamp) + 4 + 1);
-	strcpy(save_path, "backups/");
-	strcat(save_path, timestamp);
-	strcat(save_path, ".png");
+
+	AUTOFREE char* save_path = NULL;
+	asprintf(&save_path, "backups/%s.png", timestamp);
 
 	FILE* image_file_stream = fopen(save_path, "wb");
 	if (!image_file_stream) {
@@ -52,13 +48,8 @@ SaveResult save(RenderResult render_result)
 	fclose(image_file_stream);
 
 	// Save date image
-	AUTOFREE char* date_save_path = malloc(6 + strlen(timestamp) + 4 + 1);
-	strcpy(date_save_path, "dates/");
-	strcat(date_save_path, timestamp);
-	strcat(date_save_path, ".png");
-
-	// TODO: Save placers image
-
+	AUTOFREE char* date_save_path = NULL;
+	asprintf(&date_save_path, "dates/%s.png", timestamp);
 
 	FILE* date_image_file_stream = fopen(date_save_path, "wb");
 	if (!date_image_file_stream) {
@@ -78,8 +69,6 @@ SaveResult save(RenderResult render_result)
 void* start_save_worker(void* data)
 {
 	WorkerInfo* worker_info = (WorkerInfo*) data;
-	_config = worker_info->config;
-	_worker_data = worker_info->save_worker_data;
 
 	log_message(LOG_HEADER"Started save worker with thread id %d", worker_info->worker_id, worker_info->thread_id);
 

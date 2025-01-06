@@ -11,18 +11,12 @@
 #include "../memory_utils.h"
 #include "../main_thread.h"
 
-#include "../lib/parson/parson.h"
+#define STB_DS_IMPLEMENTATION
 #include "../lib/stb/stb_ds.h"
+#include "../lib/parson/parson.h"
+#include "worker_structs.h"
 
 #define LOG_HEADER "[download worker %d] "
-
-static size_t write_callback(void* contents, size_t size, size_t nmemb, void* userp)
-{
-	size_t realsize = size * nmemb;
-	char* data = (char*)userp;
-	memcpy(data, contents, realsize);
-	return realsize;
-}
 
 struct canvas_metadata {
 	int width;
@@ -41,10 +35,7 @@ struct memory_fetch {
 	uint8_t* memory;
 };
 
-const Config* _config;
-DownloadWorkerData* _worker_data;
-
-size_t fetch_memory_callback(void* contents, size_t size, size_t nmemb, void *userp)
+size_t fetch_memory_callback(void* contents, size_t size, size_t nmemb, void* userp)
 {
 	size_t real_size = size * nmemb;
 	struct memory_fetch* fetch = (struct memory_fetch*) userp;
@@ -127,16 +118,17 @@ struct canvas_metadata download_canvas_metadata(const char* metadata_url, CURL* 
 	return metadata;
 }
 
-User* get_user(int int_id)
+User* get_user(WorkerInfo* worker_info, int int_id)
 {
+	const Config* config = worker_info->config;
+	DownloadWorkerData* worker_data = worker_info->download_worker_data;
+
 	// TODO: Pull from global download worker data hash map caches instead of requesting if already exists
 
-	const char* user_url_format = "%s/users/%d";
-	int user_url_len = snprintf(NULL, 0, user_url_format, _config->game_server_base_url, int_id);
-	AUTOFREE char* user_url = malloc(user_url_len + 1);
-	snprintf(user_url, user_url_len + 1, user_url_format, _config->game_server_base_url, int_id);
+	AUTOFREE char* user_url = NULL;
+	asprintf(&user_url, "%s/users/%d", config->game_server_base_url, int_id);
 
-	struct memory_fetch user_response = fetch_url(user_url, _worker_data->curl_handle);
+	struct memory_fetch user_response = fetch_url(user_url, worker_data->curl_handle);
 	if (user_response.size == 0) {
 		return NULL;
 	}
@@ -160,7 +152,7 @@ User* get_user(int int_id)
 }
 
 
-struct top_placers get_top_placers(uint32_t* placers, size_t placers_size, size_t max_count)
+struct top_placers get_top_placers(WorkerInfo* worker_info, uint32_t* placers, size_t placers_size, size_t max_count)
 {
 	struct { uint32_t key; uint32_t value; }* placer_counts = NULL;
 	
@@ -181,7 +173,7 @@ struct top_placers get_top_placers(uint32_t* placers, size_t placers_size, size_
 		for (size_t j = 0; j < max_count; j++) {
 			if (placed > top_placers[i].pixels_placed) {
 				// We only request the user if they are actually going to end up on the leaderboard
-				User* user = get_user(user_int_id);
+				User* user = get_user(worker_info, user_int_id);
 				if (user == NULL) {
 					break;
 				}
@@ -201,23 +193,18 @@ struct top_placers get_top_placers(uint32_t* placers, size_t placers_size, size_
 	return result;
 }
 
-DownloadResult download(CanvasInfo* canvas_info)
+DownloadResult download(WorkerInfo* worker_info, CanvasInfo canvas_info)
 {
-	DownloadResult result = { .canvas_info = canvas_info };
+	const Config* config = worker_info->config;
+	DownloadWorkerData* worker_data = worker_info->download_worker_data;
+	DownloadResult result = {
+		.canvas_info = canvas_info
+	};
 
-	const char* canvas_url_format = "%s/%s/place";
-	int canvas_url_len = snprintf(NULL, 0, canvas_url_format, _config->download_base_url,
-		canvas_info->commit_hash);
-	AUTOFREE char* canvas_url = malloc(canvas_url_len + 1);
-	if (canvas_url == NULL) {
-		result.error = DOWNLOAD_ERROR_NONE;
-		result.error_msg = strdup("Memory allocation failed for canvas URL");
-		return result;
-	}
-	snprintf(canvas_url, canvas_url_len + 1, canvas_url_format, _config->download_base_url,
-		canvas_info->commit_hash);
+	AUTOFREE char* canvas_url = NULL;
+	asprintf(&canvas_url, "%s/%s/place", config->download_base_url, canvas_info.commit_hash);
 
-	struct memory_fetch canvas_data = fetch_url(canvas_url, _worker_data->curl_handle);
+	struct memory_fetch canvas_data = fetch_url(canvas_url, worker_data->curl_handle);
 	if (canvas_data.size == 0) {
 		result.error = DOWNLOAD_FAIL_FETCH;
 		result.error_msg = strdup("Failed to fetch canvas data");
@@ -225,20 +212,10 @@ DownloadResult download(CanvasInfo* canvas_info)
 	}
 
 	// Download and parse metadata
-	const char* metadata_url_format = "%s/%s/metadata.json";
-	int metadata_url_len = snprintf(NULL, 0, metadata_url_format, _config->download_base_url,
-		canvas_info->commit_hash);
-	AUTOFREE char* metadata_url = malloc(metadata_url_len + 1);
-	if (metadata_url == NULL) {
-		result.error = DOWNLOAD_ERROR_NONE;
-		result.error_msg = strdup("Memory allocation failed for metadata URL");
-		free(canvas_data.memory);
-		return result;
-	}
-	snprintf(metadata_url, metadata_url_len + 1, metadata_url_format, _config->download_base_url,
-		canvas_info->commit_hash);
+	AUTOFREE char* metadata_url = NULL;
+	asprintf(&metadata_url, "%s/%s/metadata.json", config->download_base_url, canvas_info.commit_hash);
 
-	struct canvas_metadata metadata = download_canvas_metadata(metadata_url, _worker_data->curl_handle);
+	struct canvas_metadata metadata = download_canvas_metadata(metadata_url, worker_data->curl_handle);
 	if (metadata.palette == NULL) {
 		result.error = DOWNLOAD_FAIL_METADATA;
 		result.error_msg = strdup("Failed to download or parse metadata");
@@ -247,28 +224,18 @@ DownloadResult download(CanvasInfo* canvas_info)
 	}
 
 	// Download placers
-	const char* placers_url_format = "%s/%s/placers";
-	int placers_url_len = snprintf(NULL, 0, placers_url_format, _config->download_base_url,
-		canvas_info->commit_hash);
-	AUTOFREE char* placers_url = malloc(placers_url_len + 1);
-	snprintf(placers_url, placers_url_len + 1, placers_url_format, _config->download_base_url,
-		canvas_info->commit_hash);
-	if (metadata_url == NULL) {
-		result.error = DOWNLOAD_FAIL_METADATA;
-		result.error_msg = strdup("Memory allocation failed for placers URL");
-		free(canvas_data.memory);
-		return result;
-	}
+	AUTOFREE char* placers_url = NULL;
+	asprintf(&placers_url, "%s/%s/placers", config->download_base_url, canvas_info.commit_hash);
 
-	struct memory_fetch placers_data = fetch_url(placers_url, _worker_data->curl_handle);
+	struct memory_fetch placers_data = fetch_url(placers_url, worker_data->curl_handle);
 	if (placers_data.size == 0) {
 		result.error = DOWNLOAD_FAIL_FETCH;
 		result.error_msg = strdup("Failed to fetch placers data");
 		return result;
 	}
 
-	struct top_placers top_placers = get_top_placers((uint32_t*) placers_data.memory, placers_data.size, 
-		_config->max_top_placers);
+	struct top_placers top_placers = get_top_placers(worker_info, (uint32_t*) placers_data.memory,
+		placers_data.size, config->max_top_placers);
 
 	result.canvas = (uint8_t*) canvas_data.memory;
 	result.canvas_size = canvas_data.size;
@@ -287,21 +254,19 @@ void* start_download_worker(void* data)
 {
 	// Initialise worker / thread globals
 	WorkerInfo* worker_info = (WorkerInfo*) data;
-	_config = worker_info->config;
-	_worker_data = worker_info->download_worker_data;
 
 	log_message(LOG_HEADER"Started download worker with thread id %d", worker_info->worker_id, worker_info->thread_id);
 
 	// Enter download loop
 	while (true) {
-		CanvasInfo info = pop_download_stack(worker_info->worker_id);
-		DownloadResult result = download(worker_info->current_canvas_info);
+		CanvasInfo canvas_info = pop_download_stack(worker_info->worker_id);
+
+		DownloadResult result = download(worker_info, canvas_info);
 		if (result.error) {
-			log_message(LOG_HEADER"Download %s failed with error %d message %s", worker_info->worker_id, info.commit_hash, result.error, result.error_msg);
+			log_message(LOG_HEADER"Download %s failed with error %d message %s", worker_info->worker_id, canvas_info.commit_hash, result.error, result.error_msg);
 			continue;
 		}
 		push_render_stack(result);
-
 	}
 	return NULL;
 }

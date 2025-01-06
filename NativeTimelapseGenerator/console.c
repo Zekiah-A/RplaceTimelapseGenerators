@@ -8,6 +8,7 @@
 
 #include "console.h"
 #include "main_thread.h"
+#include "memory_utils.h"
 
 // NAME: start_console, ARGS: start_generation_callback, stop_generation_callback, add_worker_callback remove_worker_callback
 typedef void (*start_console_delegate)(void*, void*, void*, void*);
@@ -117,11 +118,9 @@ void log_message(const char* format, ...)
 		log_message_cli(buffer);
 	}
 	else {
-		size_t print_size = strlen(buffer) + strlen("log_message: ") + 1;
-		char* print = (char*)malloc(print_size);
-		snprintf(print, print_size, "log_message: %s", buffer);
+		AUTOFREE char* print = NULL;
+		asprintf(&print, "log_message: %s", buffer);
 		puts(print);
-		free(print);
 	}
 
 	free(buffer);
@@ -133,11 +132,9 @@ void update_worker_stats(WorkerStep worker_step, int count)
 		update_worker_stats_cli(worker_step, count);
 	}
 	else {
-		int print_length = snprintf(NULL, 0, "worker_stats: type: %d count: %d", worker_step, count);
-		char* print = (char*)malloc(print_length + 1);
-		snprintf(print, print_length + 1, "worker_stats: type: %d count: %d", worker_step, count);
-		printf("%s\n", print);
-		free(print);
+		AUTOFREE char* print = NULL;
+		asprintf(&print, "worker_stats: type: %d count: %d", worker_step, count);
+		puts(print);
 	}
 }
 
@@ -147,10 +144,8 @@ void update_backups_stats(int backups_total, float backups_per_second, CanvasInf
 		update_backups_stats_cli(backups_total, backups_per_second, current_info);
 	}
 	else {
-		int print_length = snprintf(NULL, 0, "backups_stats: generated: %d per second: %f processing: %li", backups_total, backups_per_second, current_info.date);
-		char* print = (char*)malloc(print_length + 1);
-		snprintf(print, print_length + 1, "backups_stats: generated: %d per second: %f processing: %li", backups_total, backups_per_second, current_info.date);
-		printf("%s\n", print);
-		free(print);
+		AUTOFREE char* print = NULL;
+		asprintf(&print, "backups_stats: generated: %d per second: %f processing: %li", backups_total, backups_per_second, current_info.date);
+		puts(print);
 	}
 }

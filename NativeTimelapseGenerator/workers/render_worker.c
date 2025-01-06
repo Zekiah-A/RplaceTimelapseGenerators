@@ -1,3 +1,4 @@
+#include <cairo/cairo-deprecated.h>
 #include <math.h>
 #include <stdio.h>
 #include <png.h>
@@ -16,6 +17,7 @@
 
 #include "../console.h"
 #include "../main_thread.h"
+#include "../memory_utils.h"
 #include "../lib/stb/stb_ds.h"
 
 #define LOG_HEADER "[render worker %d] "
@@ -55,9 +57,6 @@ Colour default_palette[32] = {
 	{ .r = 255, .g = 255, .b = 255, .a = 255 }
 };
 
-const Config* _config;
-RenderWorkerData* _worker_data;
-
 cairo_status_t cairo_write(void* closure, const unsigned char* data, unsigned int length)
 {
     FILE* stream = (FILE*) closure;
@@ -70,9 +69,42 @@ cairo_status_t cairo_write(void* closure, const unsigned char* data, unsigned in
 
 RenderResult generate_top_placers_image(Placer* top_placers, int top_placers_size)
 {
-	RenderResult result = { .error = GENERATION_ERROR_NONE, .error_msg = NULL };
-	
-	// [name] (#[ID]) 10000 pixels
+	RenderResult result = {
+		.error = GENERATION_ERROR_NONE,
+		.error_msg = NULL
+	};
+	int font_size = 96;
+	int text_image_width = 1280;
+	int text_image_height = font_size * top_placers_size;
+	cairo_surface_t* surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, text_image_width, text_image_height);
+	cairo_t* cr = cairo_create(surface);
+
+	// Transparent background
+	cairo_set_source_rgba(cr, 0, 0, 0, 0);
+	cairo_paint(cr);
+
+	// Set text color and font
+	cairo_select_font_face(cr, "Monospace", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
+	cairo_set_font_size(cr, font_size);
+
+	// Enable grayscale antialiasing
+	cairo_set_antialias(cr, CAIRO_ANTIALIAS_GRAY);
+
+	// Draw text
+	cairo_set_source_rgb(cr, 1, 1, 1); // White
+
+	for (int i = 0; i < top_placers_size; i++) {
+		Placer placer = top_placers[i];
+
+		AUTOFREE char* top_placer_text = NULL;
+		asprintf(&top_placer_text, "%s (#%d) : %d pixels", placer.chat_name, placer.int_id, placer.pixels_placed);
+
+
+		cairo_move_to(cr, 0,  i * font_size);
+		cairo_show_text(cr, top_placer_text);
+	}
+
+	return result;
 }
 
 RenderResult generate_canvas_control_image()
@@ -88,8 +120,8 @@ RenderResult generate_date_image(time_t date, int style)
 	char date_text[64];
 	strftime(date_text, sizeof(date_text), "%a %d %b %Y %H:%M", gmtime(&date));
 
-	int text_image_height = 128;
 	int text_image_width = 1280;
+	int text_image_height = 128;
 	cairo_surface_t* surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, text_image_width, text_image_height);
 	cairo_t* cr = cairo_create(surface);
 
@@ -265,10 +297,18 @@ RenderResult render(DownloadResult download_result)
 {
 	RenderResult result = generate_canvas_image(download_result.width, download_result.height,
 		download_result.canvas, download_result.palette_size, download_result.palette);
+	
 	RenderResult date_result = generate_date_image(download_result.canvas_info.date, 0);
 	result.date_image = date_result.date_image;
 	result.date_image_size = date_result.date_image_size;
 	result.canvas_info = download_result.canvas_info;
+
+	RenderResult top_placers_result = generate_top_placers_image(
+		download_result.top_placers, download_result.top_placers_size);
+	
+
+	RenderResult canvas_control_result = generate_canvas_control_image();
+
 	return result;
 }
 
@@ -276,9 +316,6 @@ void* start_render_worker(void* data)
 {
 	// Initialise worker / thread globals
 	WorkerInfo* worker_info = (WorkerInfo*) data;
-	_config = worker_info->config;
-	_worker_data = worker_info->render_worker_data;
-
 
 	log_message(LOG_HEADER"Started render worker with thread id %d", worker_info->worker_id, worker_info->thread_id);
 

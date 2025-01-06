@@ -1,92 +1,39 @@
-﻿using System;
+﻿using System.Collections.ObjectModel;
+using NativeTimelapseGenerator.Console.Delegates;
+using NativeTimelapseGenerator.Console.Structs;
 using Terminal.Gui;
-using System.Runtime.InteropServices;
-using NStack;
-using System.Runtime.InteropServices.Marshalling;
 
-[StructLayout(LayoutKind.Explicit, Size = 32)] // 64-bit platform
-unsafe struct NativeCanvasInfo
+namespace NativeTimelapseGenerator.Console;
+
+public class ControlWindow : Window
 {
-    [FieldOffset(0)]
-    private IntPtr UrlPtr;
-    [FieldOffset(8)]
-    private IntPtr CommitHashPtr;
-    [FieldOffset(16)]
-    private IntPtr SavePathPtr;
-    [FieldOffset(24)]
-    public long Date;
+    public ObservableCollection<string> ServerLogs { get; } = [];
 
-    public string Url
+    private readonly StartCallbackDelegate startCallback;
+    private readonly CallbackDelegate shutdownCallback;
+    private readonly WorkersCountCallbackDelegate addWorkerCallback;
+    private readonly WorkersCountCallbackDelegate removeWorkerCallback;
+    private bool disposed;
+
+    public ControlWindow(StartCallbackDelegate startCallback, CallbackDelegate shutdownCallback,
+        WorkersCountCallbackDelegate addWorkerCallback, WorkersCountCallbackDelegate removeWorkerCallback)
     {
-        get => Marshal.PtrToStringUTF8(UrlPtr) ?? string.Empty;
-        set => UrlPtr = Marshal.StringToHGlobalAuto(value);
+        this.startCallback = startCallback;
+        this.shutdownCallback = shutdownCallback;
+        this.addWorkerCallback = addWorkerCallback;
+        this.removeWorkerCallback = removeWorkerCallback;
+        
+        InitialiseWindow();
     }
 
-    public string CommitHash
+    private void InitialiseWindow()
     {
-        get => Marshal.PtrToStringUTF8(CommitHashPtr) ?? string.Empty;
-        set => CommitHashPtr = Marshal.StringToHGlobalAuto(value);
-    }
-
-    public string SavePath
-    {
-        get => Marshal.PtrToStringUTF8(SavePathPtr) ?? string.Empty;
-        set => SavePathPtr = Marshal.StringToHGlobalAuto(value);
-    }
-}
-
-record struct WorkerInfo(string Name, int Count);
-
-// dotnet publish -r linux-x64 -c Release
-static unsafe class StaticConsole
-{
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    private delegate void Callback();
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    private delegate void WorkersCountCallback(int workerId, int changeBy);
-    private static Callback? shutdownCallback = null;
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    private delegate void StartCallback(IntPtr repoUrlPtr, IntPtr logFileNamePtr);
-    private static StartCallback? startCallback = null;
-    private static WorkersCountCallback? addWorkerCallback = null;
-    private static WorkersCountCallback? removeWorkerCallback = null;
-    private static List<string> serverLogs = new List<string>();
-    private static ListView? serverLogListView = null;
-    private static readonly object serverLogsLock = new object();
-
-    private static Label? downloadWorkerLabel = null;
-    private static Label? renderWorkerLabel = null;
-    private static Label? saveWorkerLabel = null;
-
-    private static Label? backupsTotalLabel = null;
-    private static Label? backupsPsLabel = null;
-    private static Label? currentDateLabel = null;
-
-    [UnmanagedCallersOnly(EntryPoint = "start_console")]
-    public static void StartConsole(IntPtr startCallbackPtr, IntPtr shutdownCallbackPtr, IntPtr addWorkerPtr, IntPtr removeWorkerPtr)
-    {
-        // Callbacks
-        shutdownCallback = Marshal.GetDelegateForFunctionPointer<Callback>(shutdownCallbackPtr);
-        startCallback = Marshal.GetDelegateForFunctionPointer<StartCallback>(startCallbackPtr);
-        addWorkerCallback = Marshal.GetDelegateForFunctionPointer<WorkersCountCallback>(addWorkerPtr);
-        removeWorkerCallback = Marshal.GetDelegateForFunctionPointer<WorkersCountCallback>(removeWorkerPtr);
-
-        // GUI App
-        Application.Init();
-        var window = new Window()
-        {
-            X = 0,
-            Y = 0,
-            Width = Dim.Fill(),
-            Height = Dim.Fill(),
-            Border = new Border()
-            {
-                BorderBrush = Color.White,
-                BorderStyle = BorderStyle.Rounded,
-                Title = "NativeTimelapseGenerator Control Panel (Ctrl+Q to quit)"
-            }
-        };
-        Application.Top.Add(window);
+        X = 0;
+        Y = 0;
+        Width = Dim.Fill();
+        Height = Dim.Fill();
+        BorderStyle = LineStyle.Rounded;
+        Title = "NativeTimelapseGenerator Control Panel (Ctrl+Q to quit)";
 
         var shutdownBtn = new Button()
         {
@@ -94,25 +41,22 @@ static unsafe class StaticConsole
             Y = 1,
             X = Pos.Center() + 6,
         };
-        shutdownBtn.Clicked += () =>
+        shutdownBtn.MouseClick += (_, _) =>
         {
             MessageBox.Query("Shutdown", "Halting backups generation", "Okay");
             Application.Shutdown();
-            shutdownCallback?.Invoke();
+            shutdownCallback.Invoke();
         };
 
         var startBtn = new Button()
         {
             Text = "Start",
             Y = 1,
-            X = Pos.Center() - 12,
+            X = Pos.Center() - 12
         };
-        startBtn.Clicked += () =>
+        startBtn.MouseClick += (_, _) =>
         {
-            MessageBox.Query("Start", "Starting backups generation", "Okay");
-            var repoUrl = Marshal.StringToHGlobalAuto("https://github.com/rplacetk/canvas1");
-            var logFileName = Marshal.StringToHGlobalAuto("commit_hashes.txt");
-            startCallback?.Invoke(repoUrl, logFileName);
+            ShowStartDialog();
         };
 
         var workerPanel = new View()
@@ -120,71 +64,75 @@ static unsafe class StaticConsole
             Y = 4,
             X = 1,
             Height = 4,
-            Width = Dim.Percent(50) - 2,
-            Border = new Border()
-            {
-                BorderBrush = Color.White,
-                BorderStyle = BorderStyle.Rounded,
-                Title = "Workers"
-            }
+            Width = Dim.Percent(50)! - 2,
+            BorderStyle = LineStyle.Rounded,
+            Title = "Workers"
         };
 
-        var downloadLabel = new Label("Download workers: ")
+        var downloadLabel = new Label()
         {
+            Text = "Download Workers:",
             Y = 0,
             X = 1,
         };
-        downloadWorkerLabel = new Label("0")
+        var downloadWorkerLabel = new Label()
         {
+            Text = "0",
             Y = 0,
             X = Pos.Right(downloadLabel),
         };
-        var renderLabel = new Label("Render workers: ")
+        var renderLabel = new Label()
         {
+            Text = "Render workers:",
             Y = 1,
             X = 1,
         };
-        renderWorkerLabel = new Label("0")
+        var renderWorkerLabel = new Label()
         {
+            Text = "0",
             Y = 1,
             X = Pos.Right(renderLabel),
         };
-        var saveLabel = new Label("Save workers: ")
+        var saveLabel = new Label()
         {
+            Text = "Save workers: ",
             Y = 2,
             X = 1,
         };
-        saveWorkerLabel = new Label("0")
+        var saveWorkerLabel = new Label()
         {
+            Text = "0",
             Y = 2,
             X = Pos.Right(saveLabel),
         };
 
-        var addButton = new Button("Add worker")
+        var addButton = new Button()
         {
+            Text = "Add worker",
             Y = 3,
             X = 0,
         };
-        addButton.Clicked += () =>
+        addButton.MouseClick += (_, _) =>
         {
             var selected = MessageBox.Query("Add worker", "Select step to add single worker to", "Download", "Render", "Save", "Cancel");
             if (selected != 3)
             {
-                addWorkerCallback(selected, 1);
+                addWorkerCallback.Invoke(selected, 1);
             }
         };
 
-        var removeButton = new Button("Rem worker")
+        var removeButton = new Button()
         {
+            Text = "Remove worker",
             Y = 3,
-            X = Pos.Percent(50),
+            X = Pos.Percent(50)
         };
-        removeButton.Clicked += () =>
+        removeButton.MouseClick += (_, _) =>
         {
             var selected = MessageBox.Query("Remove worker", "Select step to remove single worker from", "Download", "Render", "Save ", "Cancel");
             if (selected != 3)
             {
-                removeWorkerCallback(selected, 1);
+                removeWorkerCallback.Invoke(selected, 1);
             }
         };
 
@@ -195,65 +143,63 @@ static unsafe class StaticConsole
             Y = 4,
             X = Pos.Percent(50) + 2,
             Height = 4,
-            Width = Dim.Percent(50) - 2,
-            Border = new Border()
-            {
-                BorderBrush = Color.White,
-                BorderStyle = BorderStyle.Rounded,
-                Title = "Backups"
-            }
+            Width = Dim.Percent(50)! - 2,
+            BorderStyle = LineStyle.Rounded,
+            Title = "Backups"
         };
 
-        var backupsTotal = new Label("Total frames: ")
+        var backupsTotal = new Label()
         {
+            Text = "Total frames:",
             Y = 0,
             X = 1,
         };
-        backupsTotalLabel = new Label("0")
+        var backupsTotalLabel = new Label()
         {
+            Text = "0",
             Y = 0,
             X = Pos.Right(backupsTotal),
         };
-        var backupsPs = new Label("Frames per second: ")
+        var backupsPs = new Label()
         {
+            Text = "Backups per second:",
             Y = 1,
             X = 1,
         };
-        backupsPsLabel = new Label("0")
+        var backupsPsLabel = new Label()
         {
+            Text = "0",
             Y = 1,
             X = Pos.Right(backupsPs),
         };
-        var currentDate = new Label("Current canvas date: ")
+        var currentDate = new Label()
         {
+            Text = "Current canvas date:",
             Y = 2,
             X = 1,
         };
-        currentDateLabel = new Label("null")
+        var currentDateLabel = new Label()
         {
+            Text = "null",
             Y = 2,
             X = Pos.Right(currentDate),
         };
 
         backupPanel.Add(backupsTotal, backupsTotalLabel, backupsPs, backupsPsLabel, currentDate, currentDateLabel);
 
-        serverLogListView = new ListView(new Rect(0, 0, 128, 10), serverLogs)
+        var serverLogListView = new ListView()
         {
             Width = Dim.Fill()
         };
-        var serverLogPanel = new PanelView
+        serverLogListView.SetSource(ServerLogs);
+        var serverLogPanel = new FrameView()
         {
             Y = Pos.AnchorEnd() - 12,
             Height = 10,
-            Border = new Border
-            {
-                BorderBrush = Color.White,
-                BorderStyle = BorderStyle.Rounded,
-                Title = "Server logs"
-            },
-            ColorScheme = Colors.Base,
-            Child = serverLogListView
+            BorderStyle = LineStyle.Rounded,
+            Title = "Server logs",
         };
+        serverLogPanel.Add(serverLogListView);
 
         var clearBtn = new Button()
         {
@@ -261,136 +207,136 @@ static unsafe class StaticConsole
             Y = Pos.AnchorEnd() - 12,
             X = Pos.AnchorEnd() - 12,
         };
-        clearBtn.Clicked += () =>
+        clearBtn.MouseClick += (_, _) =>
         {
-            lock (serverLogsLock)
+            ServerLogs.Clear();
+        };
+
+        Add(shutdownBtn, startBtn, workerPanel, backupPanel, serverLogPanel, clearBtn);
+    }
+    
+    private void OpenWizard(Wizard wizard)
+    {
+        Application.Top?.Add(wizard);
+    }
+
+    private void CloseWizard(Wizard wizard)
+    {
+        Application.Top?.Remove(wizard);
+    }
+    
+    private void ShowStartDialog()
+    {
+        var wizard = new Wizard
+        {
+            Title = "Start backup generation",
+            Modal = true,
+            Width = 32,
+            Height = 12,
+            BorderStyle = LineStyle.Rounded
+        };
+
+        var repoUrlLabel = new Label()
+        {
+            Text = "Repo URL: ",
+            Y= 0,
+        };
+        var repoUrlField = new TextField()
+        {
+            Text = "https://github.com/rplacetk/canvas1",
+            Y= 0,
+            X = Pos.Right(repoUrlLabel),
+        };
+        var downloadBaseUrlLabel = new Label()
+        {
+            Text = "Download base URL: ",
+            Y= 1,
+        };
+        var downloadBaseUrlField = new TextField()
+        {
+            Text = "https://raw.githubusercontent.com/rplacetk/canvas1",
+            Y= 1,
+            X = Pos.Right(downloadBaseUrlLabel),
+        };
+        var commitHashesFileNameLabel = new Label()
+        {
+            Text = "Commit hashes file name: ",
+            Y = 2,
+        };
+        var commitHashesFileNameField = new TextField()
+        {
+            Text = "commit_hashes.txt",
+            Y= 2,
+            X = Pos.Right(commitHashesFileNameLabel),
+        };
+        var gameServerBaseUrlLabel = new Label()
+        {
+            Text = "Game server base URL: ",
+            Y = 3,
+        };
+        var gameServerBaseUrlField = new TextField()
+        {
+            Text = "https://server.rplace.live",
+            Y= 3,
+            X = Pos.Right(gameServerBaseUrlLabel),
+        };
+        var maxTopPlacersLabel = new Label()
+        {
+            Text = "Max top placers: ",
+            Y = 4,
+        };
+        var maxTopPlacersInput = new NumericUpDown()
+        {
+            Value = 10,
+            Y= 4,
+            X = Pos.Right(maxTopPlacersLabel),
+        };
+        wizard.Add(
+            repoUrlLabel,
+            repoUrlField,
+            downloadBaseUrlLabel,
+            downloadBaseUrlField,
+            commitHashesFileNameLabel,
+            commitHashesFileNameField,
+            gameServerBaseUrlLabel,
+            gameServerBaseUrlField,
+            maxTopPlacersLabel,
+            maxTopPlacersInput
+        );
+        
+        wizard.BackButton.MouseClick += (_, _) =>
+        {
+            CloseWizard(wizard);
+        };
+        wizard.Finished += (_, _) =>
+        {
+            var config = new Config()
             {
-                serverLogs.Clear();
+                RepoUrl = repoUrlField.Text,
+                DownloadBaseUrl = downloadBaseUrlField.Text,
+                CommitHashesFileName = commitHashesFileNameField.Text,
+                GameServerBaseUrl = gameServerBaseUrlField.Text,
+                MaxTopPlacers = maxTopPlacersInput.Value
+            };
+            
+            if (MessageBox.Query("Start", "Starting backups generation", "Okay") == 0)
+            {
+                startCallback.Invoke(config);
+                CloseWizard(wizard);
             }
         };
 
-        window.Add(shutdownBtn, startBtn, workerPanel, backupPanel, serverLogPanel, clearBtn);
-
-        AppDomain.CurrentDomain.UnhandledException += (sender, args) =>
-        {
-            lock (serverLogsLock)
-            {
-                serverLogs.Add("[ui] Error - " + args.ToString());
-                serverLogListView?.SetNeedsDisplay();
-            }
-        };
-
-        try
-        {
-            Application.Run();
-        }
-        catch (Exception error)
-        {
-            File.AppendAllText("logs.txt", $"\n{DateTime.Now} Error while running UI application, {error}");
-        }
+        OpenWizard(wizard);
     }
 
-    [UnmanagedCallersOnly(EntryPoint = "log_message")]
-    public static void LogMessage(IntPtr messageChars)
+    protected override void Dispose(bool disposing)
     {
-        var message = Marshal.PtrToStringUTF8(messageChars);
-        if (message != null)
+        if (disposed)
         {
-            var chunks = SplitChunks(message, 128);
-            try
-            {
-                lock (serverLogsLock)
-                {
-                    for (var i = 0; i < chunks.Length; i++)
-                    {
-                        var chunk = chunks[i];
-                        if (i != 0)
-                        {
-                            chunk = "| " + chunk;
-                        }
-                        serverLogs.Add(chunk);
-                    }
-
-                    serverLogListView?.SetNeedsDisplay();
-                }
-            }
-            catch (Exception error)
-            {
-                File.AppendAllText("logs.txt", $"\n{DateTime.Now} Error while adding UI server log, {error}");
-            }
-        }
-    }
-
-    static string[] SplitChunks(string input, int chunkSize)
-    {
-        int chunkCount = (input.Length + chunkSize - 1) / chunkSize;
-        var result = new string[chunkCount];
-
-        for (int i = 0; i < chunkCount; i++)
-        {
-            int start = i * chunkSize;
-            int length = Math.Min(chunkSize, input.Length - start);
-            result[i] = input.Substring(start, length);
+            return;
         }
 
-        return result;
-    }
-
-    [UnmanagedCallersOnly(EntryPoint = "stop_console")]
-    public static void StopConsole()
-    {
-        try
-        {
-            Application.Shutdown();
-        }
-        catch (Exception error)
-        {
-            File.AppendAllText("logs.txt", $"\n{DateTime.Now} Error while shutting down UI application, {error}");
-        }
-        shutdownCallback?.Invoke();
-    }
-
-    [UnmanagedCallersOnly(EntryPoint = "update_worker_stats")]
-    public static void UpdateWorkerStats(int workerStep, int count)
-    {
-        switch (workerStep)
-        {
-            case 0:
-                if (downloadWorkerLabel != null)
-                {
-                    downloadWorkerLabel.Text = count.ToString();
-                }
-                break;
-            case 1:
-                if (renderWorkerLabel != null)
-                {
-                    renderWorkerLabel.Text = count.ToString();
-                }
-                break;
-            case 2:
-                if (saveWorkerLabel != null)
-                {
-                    saveWorkerLabel.Text = count.ToString();
-                }
-                break;
-        }
-    }
-
-    [UnmanagedCallersOnly(EntryPoint = "update_backups_stats")]
-    public static void UpdateBackupStats(int backupsTotal, float backupsPerSecond, NativeCanvasInfo currentInfo)
-    {
-        var date = DateTimeOffset.FromUnixTimeSeconds(currentInfo.Date);
-        if (backupsTotalLabel != null)
-        {
-            backupsTotalLabel.Text = backupsTotal.ToString();
-        }
-        if (backupsPsLabel != null)
-        {
-            backupsPsLabel.Text = backupsPerSecond.ToString("0.000");
-        }
-        if (currentDateLabel != null)
-        {
-            currentDateLabel.Text = date.ToLocalTime().ToString();
-        }
+        shutdownCallback.Invoke();
+        disposed = true;
     }
 }
