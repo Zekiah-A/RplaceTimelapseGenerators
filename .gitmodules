@@ -4,3 +4,6 @@
 [submodule "Terminal.Gui"]
 	path = Terminal.Gui
 	url = https://github.com/gui-cs/Terminal.Gui
+[submodule "NativeTimelapseGenerator/lib/stb"]
+	path = NativeTimelapseGenerator/lib/stb
+	url = https://github.com/nothings/stb.git
