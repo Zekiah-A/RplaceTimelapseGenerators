@@ -351,7 +351,7 @@ RenderResult render(DownloadResult download_result)
 void* start_render_worker(void* data)
 {
 	// Initialise worker / thread globals
-	const  WorkerInfo* worker_info = (const WorkerInfo*) data;
+	const WorkerInfo* worker_info = (const WorkerInfo*) data;
 
 	log_message(LOG_HEADER"Started render worker with thread id %d", worker_info->worker_id, worker_info->thread_id);
 

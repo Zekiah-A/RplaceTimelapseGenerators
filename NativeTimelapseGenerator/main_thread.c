@@ -150,7 +150,7 @@ void add_download_worker()
 
 	info->config = &_config;
 	info->download_worker_shared = &_download_worker_shared;
-	info->download_worker_instance = (DownloadWorkerInstance) { };
+	info->download_worker_instance = malloc(sizeof(DownloadWorkerInstance));
 
 	download_workers[download_worker_top] = info;
 	update_worker_stats(WORKER_STEP_DOWNLOAD, download_worker_top + 1);
@@ -180,7 +180,7 @@ void add_render_worker()
 
 	info->config = &_config;
 	info->render_worker_shared = &_render_worker_shared;
-	info->render_worker_instance = (RenderWorkerInstance) { };
+	info->render_worker_instance = malloc(sizeof(RenderWorkerInstance));
 
 	render_workers[render_worker_top] = info;
 	update_worker_stats(WORKER_STEP_RENDER, render_worker_top + 1);
@@ -210,7 +210,7 @@ void add_save_worker()
 
 	info->config = &_config;
 	info->save_worker_shared = &_save_worker_shared;
-	info->save_worker_instance = (SaveWorkerInstance) { };
+	info->save_worker_instance = malloc(sizeof(SaveWorkerInstance));
 
 	save_workers[save_worker_top] = info;
 	update_worker_stats(WORKER_STEP_SAVE, save_worker_top + 1);

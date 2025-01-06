@@ -136,14 +136,14 @@ struct canvas_metadata download_canvas_metadata(const char* metadata_url, CURL* 
 User* get_user(const WorkerInfo* worker_info, int int_id)
 {
 	const Config* config = worker_info->config;
-	const DownloadWorkerInstance instance = worker_info->download_worker_instance;
+	DownloadWorkerInstance* instance = worker_info->download_worker_instance;
 
 	// TODO: Pull from global download worker data hash map caches instead of requesting if already exists
 
 	AUTOFREE char* user_url = NULL;
 	asprintf(&user_url, "%s/users/%d", config->game_server_base_url, int_id);
 
-	struct fetch_result user_response = fetch_url(user_url, instance.curl_handle);
+	struct fetch_result user_response = fetch_url(user_url, instance->curl_handle);
 	if (user_response.size == 0) {
 		return NULL;
 	}
@@ -211,7 +211,7 @@ struct top_placers get_top_placers(const WorkerInfo* worker_info, uint32_t* plac
 DownloadResult download(const WorkerInfo* worker_info, CanvasInfo canvas_info)
 {
 	const Config* config = worker_info->config;
-	const DownloadWorkerInstance instance = worker_info->download_worker_instance;
+	DownloadWorkerInstance* instance = worker_info->download_worker_instance;
 	DownloadResult result = {
 		// Error handling
 		.download_error = DOWNLOAD_ERROR_NONE,
@@ -224,7 +224,7 @@ DownloadResult download(const WorkerInfo* worker_info, CanvasInfo canvas_info)
 	AUTOFREE char* canvas_url = NULL;
 	asprintf(&canvas_url, "%s/%s/place", config->download_base_url, canvas_info.commit_hash);
 
-	struct fetch_result canvas_data = fetch_url(canvas_url, instance.curl_handle);
+	struct fetch_result canvas_data = fetch_url(canvas_url, instance->curl_handle);
 	if (canvas_data.error != CURLE_OK) {
 		result.download_error = DOWNLOAD_FAIL_FETCH;
 		asprintf(&result.error_msg, "Failed to fetch canvas data: %s", canvas_data.error_msg);
@@ -235,7 +235,7 @@ DownloadResult download(const WorkerInfo* worker_info, CanvasInfo canvas_info)
 	AUTOFREE char* metadata_url = NULL;
 	asprintf(&metadata_url, "%s/%s/metadata.json", config->download_base_url, canvas_info.commit_hash);
 
-	struct canvas_metadata metadata = download_canvas_metadata(metadata_url, instance.curl_handle);
+	struct canvas_metadata metadata = download_canvas_metadata(metadata_url, instance->curl_handle);
 	if (metadata.palette == NULL) {
 		result.download_error = DOWNLOAD_FAIL_METADATA;
 		result.error_msg = strdup("Failed to download or parse metadata");
@@ -247,7 +247,7 @@ DownloadResult download(const WorkerInfo* worker_info, CanvasInfo canvas_info)
 	AUTOFREE char* placers_url = NULL;
 	asprintf(&placers_url, "%s/%s/placers", config->download_base_url, canvas_info.commit_hash);
 
-	struct fetch_result placers_data = fetch_url(placers_url, instance.curl_handle);
+	struct fetch_result placers_data = fetch_url(placers_url, instance->curl_handle);
 	if (placers_data.error != CURLE_OK) {
 		result.download_error = DOWNLOAD_FAIL_FETCH;
 		asprintf(&result.error_msg, "Failed to fetch placers data: %s", placers_data.error_msg);
@@ -278,7 +278,7 @@ void* start_download_worker(void* data)
 
 	// Initialise instance members
 	CURL* curl_handle = curl_easy_init();
-	worker_info->download_worker_instance.curl_handle = curl_handle;
+	worker_info->download_worker_instance->curl_handle = curl_handle;
 
 	log_message(LOG_HEADER"Started download worker with thread id %d", worker_info->worker_id, worker_info->thread_id);
 

@@ -45,9 +45,9 @@ typedef struct worker_info {
 	pthread_t thread_id;
 	union
 	{
-		DownloadWorkerInstance download_worker_instance;
-		RenderWorkerInstance render_worker_instance;
-		SaveWorkerInstance save_worker_instance;
+		DownloadWorkerInstance* download_worker_instance;
+		RenderWorkerInstance* render_worker_instance;
+		SaveWorkerInstance* save_worker_instance;
 	};
 
 	// Shared between workers (global)
