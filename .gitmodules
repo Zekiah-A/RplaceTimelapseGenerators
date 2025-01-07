@@ -7,3 +7,9 @@
 [submodule "NativeTimelapseGenerator/lib/stb"]
 	path = NativeTimelapseGenerator/lib/stb
 	url = https://github.com/nothings/stb.git
+[submodule "NativeTimelapseGenerator/lib/libdill"]
+	path = NativeTimelapseGenerator/lib/libdill
+	url = https://github.com/sustrik/libdill.git
+[submodule "NativeTimelapseGenerator/lib/libnanobuf"]
+	path = NativeTimelapseGenerator/lib/libnanobuf
+	url = https://github.com/Zekiah-A/libnanobuf

@@ -1,0 +1,19 @@
+{
+	"name": "control-panel",
+	"private": true,
+	"version": "0.0.0",
+	"type": "module",
+	"scripts": {
+		"dev": "bunx --bun vite",
+		"build": "tsc && vite build",
+		"preview": "vite preview"
+	},
+	"dependencies": {
+		"golden-layout": "^2.6.0",
+		"lit": "^3.2.1"
+	},
+	"devDependencies": {
+		"typescript": "~5.6.2",
+		"vite": "^6.0.5"
+	}
+}

@@ -142,16 +142,14 @@ int flines(FILE* file)
 
 void add_download_worker()
 {
-	pthread_t thread_id;
 	WorkerInfo* info = (WorkerInfo*) malloc(sizeof(WorkerInfo));
-	info->worker_id = ++download_worker_top;	
-	pthread_create(&thread_id, NULL, start_download_worker, info);
-	info->thread_id = thread_id;
-
+	info->worker_id = ++download_worker_top;
+	info->thread_id = 0;
 	info->config = &_config;
 	info->download_worker_shared = &_download_worker_shared;
-	info->download_worker_instance = malloc(sizeof(DownloadWorkerInstance));
+	info->download_worker_instance = (DownloadWorkerInstance*) malloc(sizeof(DownloadWorkerInstance));
 
+	pthread_create(&info->thread_id, NULL, start_download_worker, info);
 	download_workers[download_worker_top] = info;
 	update_worker_stats(WORKER_STEP_DOWNLOAD, download_worker_top + 1);
 }
@@ -172,16 +170,14 @@ void remove_download_worker()
 
 void add_render_worker()
 {
-	pthread_t thread_id;
 	WorkerInfo* info = (WorkerInfo*) malloc(sizeof(WorkerInfo));
 	info->worker_id = ++render_worker_top;
-	pthread_create(&thread_id, NULL, start_render_worker, info);
-	info->thread_id = thread_id;
-
+	info->thread_id = 0;
 	info->config = &_config;
 	info->render_worker_shared = &_render_worker_shared;
-	info->render_worker_instance = malloc(sizeof(RenderWorkerInstance));
+	info->render_worker_instance = (RenderWorkerInstance*) malloc(sizeof(RenderWorkerInstance));
 
+	pthread_create(&info->thread_id, NULL, start_render_worker, info);
 	render_workers[render_worker_top] = info;
 	update_worker_stats(WORKER_STEP_RENDER, render_worker_top + 1);
 }
@@ -205,13 +201,12 @@ void add_save_worker()
 	pthread_t thread_id;
 	WorkerInfo* info = (WorkerInfo*) malloc(sizeof(WorkerInfo));
 	info->worker_id = ++save_worker_top;
-	pthread_create(&thread_id, NULL, start_save_worker, info);
-	info->thread_id = thread_id;
-
+	info->thread_id = 0;
 	info->config = &_config;
 	info->save_worker_shared = &_save_worker_shared;
-	info->save_worker_instance = malloc(sizeof(SaveWorkerInstance));
+	info->save_worker_instance = (SaveWorkerInstance*) malloc(sizeof(SaveWorkerInstance));
 
+	pthread_create(&info->thread_id, NULL, start_save_worker, info);
 	save_workers[save_worker_top] = info;
 	update_worker_stats(WORKER_STEP_SAVE, save_worker_top + 1);
 }

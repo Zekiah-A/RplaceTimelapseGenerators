@@ -38,7 +38,8 @@ struct fetch_result {
 	const char* error_msg;
 };
 
-size_t fetch_memory_callback(void* contents, size_t size, size_t nmemb, void* userp) {
+size_t fetch_memory_callback(void* contents, size_t size, size_t nmemb, void* userp)
+{
 	size_t real_size;
 	struct fetch_result* fetch = (struct fetch_result*)userp;
 
@@ -52,12 +53,6 @@ size_t fetch_memory_callback(void* contents, size_t size, size_t nmemb, void* us
 
 	// Reallocate memory
 	uint8_t* temp_memory = realloc(fetch->memory, fetch->size + real_size);
-	if (temp_memory == NULL) {
-		free(fetch->memory);
-		stop_console();
-		fprintf(stderr, "Not enough memory to continue fetch (realloc returned NULL)\n");
-		exit(EXIT_FAILURE);
-	}
 	fetch->memory = temp_memory;
 
 	// Copy new data to the allocated memory
@@ -69,6 +64,9 @@ size_t fetch_memory_callback(void* contents, size_t size, size_t nmemb, void* us
 static struct fetch_result fetch_url(const char* url, CURL* curl_handle)
 {
 	struct fetch_result fetch = {
+		.error = CURLE_OK,
+		.error_msg = NULL,
+
 		.memory = NULL,
 		.size = 0
 	};

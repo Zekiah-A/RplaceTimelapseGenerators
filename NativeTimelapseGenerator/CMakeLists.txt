@@ -3,6 +3,7 @@ project(NativeTimelapseGenerator)
 
 # Set C standard to 23
 set(CMAKE_C_STANDARD 23)
+set(CMAKE_C_STANDARD_REQUIRED True)
 
 # Enable MS extensions
 if(MSVC)
