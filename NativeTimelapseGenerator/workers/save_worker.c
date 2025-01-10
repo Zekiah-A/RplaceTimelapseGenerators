@@ -80,7 +80,7 @@ void* start_save_worker(void* data)
 {
 	const WorkerInfo* worker_info = (const WorkerInfo*) data;
 
-	log_message(LOG_HEADER"Started save worker with thread id %d", worker_info->worker_id, worker_info->thread_id);
+	log_message(LOG_INFO, LOG_HEADER"Started save worker with thread id %d", worker_info->worker_id, worker_info->thread_id);
 
 	// Enter save loop
 	while (true) {
@@ -88,7 +88,7 @@ void* start_save_worker(void* data)
 
 		SaveResult result = save(render_result);
 		if (result.save_error != SAVE_ERROR_NONE) {
-			log_message(LOG_HEADER"Save worker %d failed with error %d message %s", worker_info->worker_id, worker_info->worker_id, result.save_error, result.error_msg);
+			log_message(LOG_ERROR, LOG_HEADER"Save worker %d failed with error %d message %s", worker_info->worker_id, worker_info->worker_id, result.save_error, result.error_msg);
 			continue;
 		}
 

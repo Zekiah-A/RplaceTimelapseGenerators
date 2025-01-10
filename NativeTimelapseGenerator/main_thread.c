@@ -14,10 +14,13 @@
 #include <git2/commit.h>
 #include <errno.h>
 #include <sqlite3.h>
+#include <avcall.h>
 
 #include "console.h"
 #include "main_thread.h"
 #include "memory_utils.h"
+#define STB_DS_IMPLEMENTATION
+#include "lib/stb/stb_ds.h"
 
 #include "workers/worker_structs.h"
 #include "workers/download_worker.h"
@@ -29,26 +32,9 @@
 
 // SHARED BETWEEN-WORKER MEMORY
 #define STACK_SIZE_MAX 256
-#define DEFAULT_DOWNLOAD_WORKER_COUNT 4
 Stack download_stack;
-#define DEFAULT_RENDER_WORKER_COUNT 2
 Stack render_stack;
-#define DEFAULT_SAVE_WORKER_COUNT 1
 Stack save_stack;
-
-// WORKER THREADS
-#define WORKER_MAX 100
-struct worker_info* download_workers[WORKER_MAX] = { };
-int download_worker_top = -1;
-struct worker_info* render_workers[WORKER_MAX] = { };
-int render_worker_top = -1;
-struct worker_info* save_workers[WORKER_MAX] = { };
-int save_worker_top = -1;
-
-time_t completed_backups_date = 0;
-int completed_backups_since = 0;
-int completed_backups = 0;
-CanvasInfo* completed_canvas_info = NULL;
 
 bool work_queue_replenished = false;
 pthread_mutex_t download_pop_mutex;
@@ -58,13 +44,26 @@ bool render_stack_replenished = false;
 pthread_mutex_t save_pop_mutex;
 bool save_stack_replenished = false;
 
+// WORKER THREADS
+#define DEFAULT_DOWNLOAD_WORKER_COUNT 4
+#define DEFAULT_RENDER_WORKER_COUNT 2
+#define DEFAULT_SAVE_WORKER_COUNT 1
+WorkerInfo** download_workers = NULL; // stb array
+WorkerInfo** render_workers = NULL; // stb array
+WorkerInfo** save_workers = NULL; // stb array
+
+time_t completed_backups_date = 0;
+int completed_backups_since = 0;
+int completed_backups = 0;
+CanvasInfo* completed_canvas_info = NULL;
+
 // DATABASE
 sqlite3* _database = NULL;
 
 // CONFIG
 Config _config = { 0 };
 
-// Worker datas
+// WORKER DATAS
 DownloadWorkerShared _download_worker_shared;
 RenderWorkerShared _render_worker_shared;
 SaveWorkerShared _save_worker_shared;
@@ -72,7 +71,7 @@ SaveWorkerShared _save_worker_shared;
 // Private
 void init_work_queue(MainThreadQueue* queue, size_t capacity)
 {
-	queue->work = (MainThreadWork*) malloc(sizeof(MainThreadWork) * capacity);
+	queue->work = (av_alist*) malloc(sizeof(av_alist) * capacity);
 	if (!queue->work) {
 		stop_console();
 		fprintf(stderr, "Failed to initialise main thread work queue\n");
@@ -86,7 +85,7 @@ void init_work_queue(MainThreadQueue* queue, size_t capacity)
 }
 
 // Dequeue a message
-void push_work_queue(MainThreadQueue* queue, MainThreadWork work)
+void push_work_queue(MainThreadQueue* queue, av_alist work)
 {
 	pthread_mutex_lock(&queue->mutex);
 
@@ -106,7 +105,7 @@ void push_work_queue(MainThreadQueue* queue, MainThreadWork work)
 	pthread_mutex_unlock(&queue->mutex);
 }
 
-struct main_thread_work pop_work_queue(MainThreadQueue* queue)
+av_alist pop_work_queue(MainThreadQueue* queue)
 {
 	pthread_mutex_lock(&queue->mutex);
 
@@ -119,7 +118,7 @@ struct main_thread_work pop_work_queue(MainThreadQueue* queue)
 	}
 
 	// Dequeue the message
-	struct main_thread_work message = queue->work[queue->front];
+	av_alist message = queue->work[queue->front];
 	queue->front = (queue->front + 1) % queue->capacity;
 	pthread_mutex_unlock(&queue->mutex);
 
@@ -143,86 +142,106 @@ int flines(FILE* file)
 void add_download_worker()
 {
 	WorkerInfo* info = (WorkerInfo*) malloc(sizeof(WorkerInfo));
-	info->worker_id = ++download_worker_top;
+	info->worker_id = arrlen(download_workers) + 1;
 	info->thread_id = 0;
 	info->config = &_config;
 	info->download_worker_shared = &_download_worker_shared;
 	info->download_worker_instance = (DownloadWorkerInstance*) malloc(sizeof(DownloadWorkerInstance));
 
 	pthread_create(&info->thread_id, NULL, start_download_worker, info);
-	download_workers[download_worker_top] = info;
-	update_worker_stats(WORKER_STEP_DOWNLOAD, download_worker_top + 1);
+	arrput(download_workers, info);
+	update_worker_stats(WORKER_TYPE_DOWNLOAD, arrlen(download_workers));
 }
 
 void remove_download_worker()
 {
-	if (download_worker_top < 0) {
-		stop_console();
-		fprintf(stderr, "Error - download worker underflow occurred\n");
-		exit(EXIT_FAILURE);
+	if (arrlen(download_workers) <= 0) {
+		log_message(LOG_ERROR, "Couldn't remove download worker: download worker count <= 0");
+		return;
 	}
-	WorkerInfo* info = download_workers[download_worker_top];
+
+	WorkerInfo* info = arrpop(download_workers);
 	pthread_cancel(info->thread_id);
-	download_worker_top--;
 	free(info);
-	update_worker_stats(WORKER_STEP_DOWNLOAD, download_worker_top + 1);
+	update_worker_stats(WORKER_TYPE_DOWNLOAD, arrlen(download_workers));
 }
+
 
 void add_render_worker()
 {
 	WorkerInfo* info = (WorkerInfo*) malloc(sizeof(WorkerInfo));
-	info->worker_id = ++render_worker_top;
+	info->worker_id = arrlen(render_workers) + 1;
 	info->thread_id = 0;
 	info->config = &_config;
 	info->render_worker_shared = &_render_worker_shared;
 	info->render_worker_instance = (RenderWorkerInstance*) malloc(sizeof(RenderWorkerInstance));
 
 	pthread_create(&info->thread_id, NULL, start_render_worker, info);
-	render_workers[render_worker_top] = info;
-	update_worker_stats(WORKER_STEP_RENDER, render_worker_top + 1);
+	arrput(render_workers, info);
+	update_worker_stats(WORKER_TYPE_RENDER, arrlen(render_workers));
 }
 
 void remove_render_worker()
 {
-	if (render_worker_top < 0) {
-		stop_console();
-		fprintf(stderr, "Error - render worker underflow occurred\n");
-		exit(EXIT_FAILURE);
+	if (arrlen(render_workers) <= 0) {
+		log_message(LOG_ERROR, "Couldn't remove render worker: render worker count <= 0");
+		return;
 	}
-	WorkerInfo* info = render_workers[render_worker_top];
+
+	WorkerInfo* info = arrpop(render_workers);
 	pthread_cancel(info->thread_id);
-	render_worker_top--;
 	free(info);
-	update_worker_stats(WORKER_STEP_RENDER, render_worker_top + 1);
+	update_worker_stats(WORKER_TYPE_RENDER, arrlen(render_workers));
 }
 
 void add_save_worker()
 {
-	pthread_t thread_id;
 	WorkerInfo* info = (WorkerInfo*) malloc(sizeof(WorkerInfo));
-	info->worker_id = ++save_worker_top;
+	info->worker_id = arrlen(save_workers) + 1;
 	info->thread_id = 0;
 	info->config = &_config;
 	info->save_worker_shared = &_save_worker_shared;
 	info->save_worker_instance = (SaveWorkerInstance*) malloc(sizeof(SaveWorkerInstance));
 
 	pthread_create(&info->thread_id, NULL, start_save_worker, info);
-	save_workers[save_worker_top] = info;
-	update_worker_stats(WORKER_STEP_SAVE, save_worker_top + 1);
+	arrput(save_workers, info);
+	update_worker_stats(WORKER_TYPE_SAVE, arrlen(save_workers));
 }
 
 void remove_save_worker()
 {
-	if (save_worker_top < 0) {
+	if (arrlen(save_workers) <= 0) {
 		stop_console();
-		fprintf(stderr, "Error - save worker underflow occurred\n");
+		fprintf(stderr, "Couldn't remove save worker: save worker count <= 0");
 		exit(EXIT_FAILURE);
 	}
-	WorkerInfo* info = save_workers[save_worker_top];
+	WorkerInfo* info = arrpop(save_workers);
 	pthread_cancel(info->thread_id);
-	save_worker_top--;
 	free(info);
-	update_worker_stats(WORKER_STEP_SAVE, save_worker_top + 1);
+	update_worker_stats(WORKER_TYPE_SAVE, arrlen(save_workers));
+}
+
+void remove_all_workers(WorkerInfo** workers)
+{
+	for (int i = 0; i < arrlen(workers); i++) {
+		WorkerInfo* worker = arrpop(workers);
+		pthread_cancel(worker->thread_id);
+		free(worker);
+	}
+}
+
+WorkerInfo** get_workers(WorkerType type)
+{
+	if (type == WORKER_TYPE_DOWNLOAD) {
+		return download_workers;
+	}
+	else if (type == WORKER_TYPE_RENDER) {
+		return render_workers;
+	}
+	else if (type == WORKER_TYPE_SAVE) {
+		return save_workers;
+	}
+	return NULL;
 }
 
 // Post queue
@@ -230,8 +249,8 @@ void remove_save_worker()
 MainThreadQueue work_queue = { };
 
 // Public
-// Enques work to work queue - 
-void main_thread_post(MainThreadWork work)
+// Enques work to work queue
+void main_thread_post(av_alist work)
 {
 	push_work_queue(&work_queue, work);
 }
@@ -258,11 +277,13 @@ void push_save_stack(RenderResult result)
 void push_completed(SaveResult result)
 {
 	// TODO: Reimplement this
-	fprintf(stderr,  "FIXME: Implement push completed");
+	log_message(LOG_ERROR,  "TODO: FIXME: Implement push completed");
 
 	completed_backups++;
 	completed_backups_since++;
-	main_thread_post((struct main_thread_work) { .func = collect_backup_stats });
+	av_alist backup_alist;
+	av_start_void(backup_alist, &collect_backup_stats);
+	main_thread_post(backup_alist);
 }
 
 // Called by save worker on main thread, will forward collected info to UI thread
@@ -325,7 +346,7 @@ void* read_commit_hashes(FILE* file)
 
 		// Comment or ignore
 		if (result_len == 0 || result[0] == '#' || result[0] == '\n') {
-			log_message("(Line %d) Ignoring comment '%s'", line_index, result);
+			log_message(LOG_INFO, LOG_HEADER"(Line %d) Ignoring comment '%s'", line_index, result);
 			continue;
 		}
 
@@ -346,9 +367,9 @@ void* read_commit_hashes(FILE* file)
 			push_download_stack(new_canvas_info);
 			memset(&new_canvas_info, 0, sizeof(CanvasInfo)); // Wipe for reuse
 
-			if (download_stack.top >= STACK_SIZE_MAX) {
+			if (download_stack.top >= STACK_SIZE_MAX - 1) {
 				// We will come back later
-				log_message(LOG_HEADER"Bufferred %d commit records into download stack. Pausing until needs replenish", download_stack.top + 1);
+				log_message(LOG_INFO, LOG_HEADER"Bufferred %d commit records into download stack. Pausing until needs replenish", download_stack.top + 1);
 				break;
 			}
 		}
@@ -371,7 +392,7 @@ int progress_callback(const git_indexer_progress* stats, void* payload)
 	int indexed_objects = stats->indexed_objects;
 	int percentage = (total_objects > 0) ? (received_objects * 100 / total_objects) : 0;
 	if (percentage != last_progress_percentage) {
-		log_message(LOG_HEADER"Cloning progress: %d%% (%d/%d) - Indexed: %d", percentage, received_objects, total_objects, indexed_objects);
+		log_message(LOG_INFO, LOG_HEADER"Cloning progress: %d%% (%d/%d) - Indexed: %d", percentage, received_objects, total_objects, indexed_objects);
 	}
 	last_progress_percentage = percentage;
 	return 0;
@@ -437,7 +458,7 @@ void append_new_commits_to_log(git_repository* repo, const char* log_file_name)
 		commit_count++;
 
 		if (commit_count % 100 == 0) {
-			log_message(LOG_HEADER"Appended %d new commits...", commit_count);
+			log_message(LOG_INFO, LOG_HEADER"Appended %d new commits...", commit_count);
 		}
 
 		git_commit_free(commit);
@@ -445,26 +466,26 @@ void append_new_commits_to_log(git_repository* repo, const char* log_file_name)
 
 	fclose(log_file);
 	git_revwalk_free(walker);
-	log_message(LOG_HEADER"Appended new commits to log file %s", log_file_name);
+	log_message(LOG_INFO, LOG_HEADER"Appended new commits to log file %s", log_file_name);
 }
 
 const char* get_repo_commit_hashes(const char* repo_url)
 {
-	log_message(LOG_HEADER"Initializing libgit2...");
+	log_message(LOG_INFO, LOG_HEADER"Initializing libgit2...");
 	git_libgit2_init();
 
 	const char* repo_path = "./repo";
 	const char* log_file_name = "repo_commit_hashes.txt";
 
 	if (is_repo_cloned(repo_path)) {
-		log_message(LOG_HEADER"Repository already cloned.");
+		log_message(LOG_INFO, LOG_HEADER"Repository already cloned.");
 
 		if (is_commit_hashes_up_to_date(log_file_name)) {
-			log_message(LOG_HEADER"Commit hashes log is up to date.");
+			log_message(LOG_INFO, LOG_HEADER"Commit hashes log is up to date.");
 			return log_file_name;
 		}
 		else {
-			log_message(LOG_HEADER"Commit hashes log is outdated. Appending new commits...");
+			log_message(LOG_INFO, LOG_HEADER"Commit hashes log is outdated. Appending new commits...");
 			git_repository* repo = NULL;
 			if (git_repository_open(&repo, repo_path) != 0) {
 				const git_error* e = git_error_last();
@@ -478,7 +499,7 @@ const char* get_repo_commit_hashes(const char* repo_url)
 		}
 	}
 
-	log_message(LOG_HEADER"Cloning repository from %s...", repo_url);
+	log_message(LOG_INFO, LOG_HEADER"Cloning repository from %s...", repo_url);
 
 	git_repository* repo = NULL;
 	git_clone_options clone_opts = GIT_CLONE_OPTIONS_INIT;
@@ -486,16 +507,16 @@ const char* get_repo_commit_hashes(const char* repo_url)
 	callbacks.transfer_progress = progress_callback;
 	clone_opts.fetch_opts.callbacks = callbacks;
 
-	log_message(LOG_HEADER"Starting repository clone...");
+	log_message(LOG_INFO, LOG_HEADER"Starting repository clone...");
 	if (git_clone(&repo, repo_url, repo_path, &clone_opts) != 0) {
 		const git_error* e = git_error_last();
 		fprintf(stderr, "Error cloning repository: %s\n", e->message);
 		git_libgit2_shutdown();
 		return NULL;
 	}
-	log_message(LOG_HEADER"Repository cloned successfully.");
+	log_message(LOG_INFO, LOG_HEADER"Repository cloned successfully.");
 
-	log_message(LOG_HEADER"Creating revwalk...");
+	log_message(LOG_INFO, LOG_HEADER"Creating revwalk...");
 	git_revwalk* walker = NULL;
 	if (git_revwalk_new(&walker, repo) != 0) {
 		const git_error* e = git_error_last();
@@ -504,7 +525,7 @@ const char* get_repo_commit_hashes(const char* repo_url)
 		git_libgit2_shutdown();
 		return NULL;
 	}
-	log_message(LOG_HEADER"Revwalk created successfully.");
+	log_message(LOG_INFO, LOG_HEADER"Revwalk created successfully.");
 
 	git_revwalk_sorting(walker, GIT_SORT_TIME);
 	git_revwalk_push_head(walker);
@@ -517,7 +538,7 @@ const char* get_repo_commit_hashes(const char* repo_url)
 		git_libgit2_shutdown();
 		return NULL;
 	}
-	log_message(LOG_HEADER"Log file %s created successfully.", log_file_name);
+	log_message(LOG_INFO, LOG_HEADER"Log file %s created successfully.", log_file_name);
 
 	git_oid oid;
 	int commit_count = 0;
@@ -539,7 +560,7 @@ const char* get_repo_commit_hashes(const char* repo_url)
 		commit_count++;
 
 		if (commit_count % 100 == 0) {
-			log_message(LOG_HEADER"Processed %d commits...", commit_count);
+			log_message(LOG_INFO, LOG_HEADER"Processed %d commits...", commit_count);
 		}
 
 		git_commit_free(commit);
@@ -549,7 +570,7 @@ const char* get_repo_commit_hashes(const char* repo_url)
 	git_revwalk_free(walker);
 	git_repository_free(repo);
 	git_libgit2_shutdown();
-	log_message(LOG_HEADER"Repository clone and log complete. Log saved to %s", log_file_name);
+	log_message(LOG_INFO, LOG_HEADER"Repository clone and log complete. Log saved to %s", log_file_name);
 
 	char* result = strdup(log_file_name);
 	return result;
@@ -558,7 +579,7 @@ const char* get_repo_commit_hashes(const char* repo_url)
 int database_create_callback(void *data, int argc, char **argv, char **col_name)
 {
 	for (int i = 0; i < argc; i++) {
-		log_message(LOG_HEADER"%s = %s\n", col_name[i], argv[i] ? argv[i] : "NULL");
+		log_message(LOG_INFO, LOG_HEADER"%s = %s\n", col_name[i], argv[i] ? argv[i] : "NULL");
 	}
 	return 0;
 }
@@ -569,16 +590,16 @@ bool try_create_database(sqlite3* database)
 	const char* schema_file = "schema.sql";
 
 	// Open database connection
-	int result = sqlite3_open("canvas_database.db", &database);
+	int result = sqlite3_open("instance_caches.db", &database);
 	if (result != SQLITE_OK) {
-		log_message(LOG_HEADER"Cannot open database: %s\n", sqlite3_errmsg(database));
+		log_message(LOG_ERROR, LOG_HEADER"Cannot open database: %s\n", sqlite3_errmsg(database));
 		return false;
 	}
 
 	// Read schema file
 	FILE* file = fopen(schema_file, "r");
 	if (!file) {
-		log_message(LOG_HEADER"Cannot open schema file: %s\n", schema_file);
+		log_message(LOG_ERROR, LOG_HEADER"Cannot open schema file: %s\n", schema_file);
 		sqlite3_close(database);
 		return false;
 	}
@@ -591,7 +612,7 @@ bool try_create_database(sqlite3* database)
 	// Allocate memory to hold the schema content
 	AUTOFREE char* sql = (char*)malloc(file_size + 1);
 	if (sql == NULL) {
-		log_message(LOG_HEADER"Memory allocation failed\n");
+		log_message(LOG_ERROR, LOG_HEADER"Memory allocation failed\n");
 		fclose(file);
 		sqlite3_close(database);
 		return false;
@@ -605,7 +626,7 @@ bool try_create_database(sqlite3* database)
 	// Execute schema SQL statements
 	result = sqlite3_exec(database, sql, database_create_callback, 0, &err_msg);
 	if (result != SQLITE_OK) {
-		log_message(LOG_HEADER"Failed to create database: %s\n", err_msg);
+		log_message(LOG_ERROR, LOG_HEADER"Failed to create database: %s\n", err_msg);
 		sqlite3_free(err_msg);
 		sqlite3_close(database);
 		return false;
@@ -620,7 +641,7 @@ void start_generation(Config config)
 	// Create database
 	if (!try_create_database(_database)) {
 		stop_console();
-		log_message(LOG_HEADER"Error creating database\n");
+		log_message(LOG_ERROR, LOG_HEADER"Error creating database\n");
 		exit(EXIT_FAILURE);
 	}
 
@@ -630,7 +651,7 @@ void start_generation(Config config)
 	CURL* curl = curl_easy_init();
 	if (curl == NULL) {
 		stop_console();
-		log_message(LOG_HEADER"Error initialising curl\n");
+		log_message(LOG_ERROR, LOG_HEADER"Error initialising curl\n");
 		exit(EXIT_FAILURE);
 	}
 
@@ -640,7 +661,7 @@ void start_generation(Config config)
 	_save_worker_shared = (SaveWorkerShared) { };
 
 	// Either source commit info from commit hashes or repo URL
-	log_message(LOG_HEADER"Starting generation process...");
+	log_message(LOG_INFO, LOG_HEADER"Starting generation process...");
 
 	const char* log_file_name = config.commit_hashes_file_name;
 	if (config.repo_url) {
@@ -648,61 +669,53 @@ void start_generation(Config config)
 	}
 	if (!log_file_name) {
 		stop_console();
-		log_message(LOG_HEADER"Error, could not locate commit hashes file\n");
+		log_message(LOG_ERROR, LOG_HEADER"Error, could not locate commit hashes file\n");
 		exit(EXIT_FAILURE);
 	}
 
-	log_message(LOG_HEADER"Opening log file %s for reading...", log_file_name);
+	log_message(LOG_INFO, LOG_HEADER"Opening log file %s for reading...", log_file_name);
 	FILE* file = fopen(log_file_name, "r");
 	if (file == NULL) {
 		stop_console();
-		log_message(LOG_HEADER"Error, could not locate commit hashes file (%s)\n", log_file_name);
+		log_message(LOG_ERROR, LOG_HEADER"Error, could not locate commit hashes file (%s)\n", log_file_name);
 		exit(EXIT_FAILURE);
 	}
 	commit_hashes_stream = file;
 
 	long file_lines = flines(file);
-	log_message(LOG_HEADER"Detected %d lines in %s", file_lines, log_file_name);
+	log_message(LOG_INFO, LOG_HEADER"Detected %d lines in %s", file_lines, log_file_name);
 	read_commit_hashes(file);
 
 	// Create required directories
 	if (mkdir("backups", 0777) == -1) {
 		if (errno != EEXIST) {
 			stop_console();
-			log_message(LOG_HEADER, "Error creating backups directory\n");
+			log_message(LOG_ERROR, LOG_HEADER, "Error creating backups directory\n");
 			exit(EXIT_FAILURE);
 		}
 	}
 	if (mkdir("dates", 0777) == -1) {
 		if (errno != EEXIST) {
 			stop_console();
-			log_message(LOG_HEADER, "Error creating dates directory\n");
+			log_message(LOG_ERROR, LOG_HEADER, "Error creating dates directory\n");
 			exit(EXIT_FAILURE);
 		}
 	}
 
-	log_message(LOG_HEADER"Starting backup generation...");
+	log_message(LOG_INFO, LOG_HEADER"Starting backup generation...");
 	for (int i = 0; i < DEFAULT_DOWNLOAD_WORKER_COUNT; i++) {
-		log_message(LOG_HEADER"Adding download worker %d...", i + 1);
+		log_message(LOG_INFO, LOG_HEADER"Adding download worker %d...", i + 1);
 		add_download_worker();
 	}
 	for (int i = 0; i < DEFAULT_RENDER_WORKER_COUNT; i++) {
-		log_message(LOG_HEADER"Adding render worker %d...", i + 1);
+		log_message(LOG_INFO, LOG_HEADER"Adding render worker %d...", i + 1);
 		add_render_worker();
 	}
 	for (int i = 0; i < DEFAULT_SAVE_WORKER_COUNT; i++) {
-		log_message(LOG_HEADER"Adding save worker %d...", i + 1);
+		log_message(LOG_INFO, LOG_HEADER"Adding save worker %d...", i + 1);
 		add_save_worker();
 	}
-	log_message(LOG_HEADER"Backup generation started.");
-}
-
-void terminate_and_cleanup_workers(WorkerInfo** workers, int* worker_top)
-{
-	for (int i = 0; i <= *worker_top; i++) {
-		free(workers[i]);
-	}
-	*worker_top = -1;
+	log_message(LOG_INFO, LOG_HEADER"Backup generation started.");
 }
 
 // Often called by UI. Cleanly shutdown generation side of program, will cleanup all resources
@@ -718,9 +731,9 @@ void stop_generation()
 	free_stack(&save_stack);
 
 	// Terminate and cleanup all workers
-	terminate_and_cleanup_workers(download_workers, &download_worker_top);
-	terminate_and_cleanup_workers(render_workers, &render_worker_top);
-	terminate_and_cleanup_workers(save_workers, &save_worker_top);
+	remove_all_workers(download_workers);
+	remove_all_workers(render_workers);
+	remove_all_workers(save_workers);
 
 	// Cleanup globals
 	curl_global_cleanup();
@@ -767,40 +780,7 @@ void start_main_thread(bool start, Config config)
 		}
 		work_queue_replenished = false;
 
-		struct main_thread_work work = pop_work_queue(&work_queue);
-
-		switch (work.arg_count) {
-			case 0:
-				((void (*)(void))work.func)();
-				break;
-			case 1:
-				((void (*)(void*))work.func)(work.args.args[0]);
-				break;
-			case 2:
-				((void (*)(void*, void*))work.func)(work.args.args[0], work.args.args[1]);
-				break;
-			case 3:
-				((void (*)(void*, void*, void*))work.func)(work.args.args[0], work.args.args[1], work.args.args[2]);
-				break;
-			case 4:
-				((void (*)(void*, void*, void*, void*))work.func)(work.args.args[0], work.args.args[1], work.args.args[2], work.args.args[3]);
-				break;
-			case 5:
-				((void (*)(void*, void*, void*, void*, void*))work.func)(work.args.args[0], work.args.args[1], work.args.args[2], work.args.args[3], work.args.args[4]);
-				break;
-			case 6:
-				((void (*)(void*, void*, void*, void*, void*, void*))work.func)(work.args.args[0], work.args.args[1], work.args.args[2], work.args.args[3], work.args.args[4], work.args.args[5]);
-				break;
-			case 7:
-				((void (*)(void*, void*, void*, void*, void*, void*, void*))work.func)(work.args.args[0], work.args.args[1], work.args.args[2], work.args.args[3], work.args.args[4], work.args.args[5], work.args.args[6]);
-				break;
-			case 8:
-				((void (*)(void*, void*, void*, void*, void*, void*, void*, void*))work.func)(work.args.args[0], work.args.args[1], work.args.args[2], work.args.args[3], work.args.args[4], work.args.args[5], work.args.args[6], work.args.args[7]);
-				break;
-			default:
-				stop_console();
-				fprintf(stderr, "Error - Unsupported number of arguments: %d\n", work.arg_count);
-				exit(EXIT_FAILURE);
-		}
+		av_alist work = pop_work_queue(&work_queue);
+		av_call(work);
 	}
 }

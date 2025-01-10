@@ -1,16 +1,40 @@
 import { LitElement, html } from "lit";
-import { customElement } from "lit/decorators.js";
+import { customElement, property } from "lit/decorators.js";
+import { BufReader } from "nanobuf";
 
 import "./main-control-view.ts";
 import "./worker-manager-view.ts";
 import "./backups-view.ts";
 import "./logs-list-view.ts";
 
+export enum EventPacket {
+	LogMessage = 0,
+	WorkerStatus = 1
+};
+
+export enum ControlPacket {
+	Start = 0,
+	Stop = 1,
+	AddWorker = 2,
+	RemoveWorker = 3
+}
 
 @customElement("control-panel")
 export class ControlPanel extends LitElement {
+	@property({ type: Boolean })
 	connected = false;
+
 	websocket: WebSocket | null = null;
+	packetHandlers:Map<EventPacket, Array<(packet:BufReader) => void>> = new Map<EventPacket, Array<(packet:BufReader) => void>>([]);
+
+	addPacketHandler(packet:EventPacket, handler:(packet:BufReader) => void) {
+		let handlers = this.packetHandlers.get(packet);
+		if (!handlers) {
+			handlers = [];
+			this.packetHandlers.set(packet, handlers);
+		}
+		handlers.push(handler);
+	}
 
 	setConnected(state: boolean) {
 		this.connected = state;
@@ -19,7 +43,7 @@ export class ControlPanel extends LitElement {
 
 	connect(https: boolean, domain: string, port: string) {
 		const protocol = https ? "wss" : "ws";
-		const url = `${protocol}://${domain}:${port}/events`;
+		const url = `${protocol}://${domain}:${port}`;
 	
 		if (this.websocket && (this.websocket.readyState === WebSocket.OPEN || this.websocket.readyState === WebSocket.CONNECTING)) {
 			console.warn("WebSocket is already connected or connecting.");
@@ -27,6 +51,7 @@ export class ControlPanel extends LitElement {
 		}
 	
 		this.websocket = new WebSocket(url);
+		this.websocket.binaryType = "arraybuffer";
 	
 		this.websocket.onopen = () => {
 			this.setConnected(true);
@@ -43,7 +68,20 @@ export class ControlPanel extends LitElement {
 			this.setConnected(false);
 		};
 
-		this.websocket.onmessage = async (event:MessageEvent) => {
+		this.websocket.onmessage = (event:MessageEvent) => {			
+			const reader = new BufReader(event.data)
+			const packet = reader.u8() as EventPacket;
+
+			const handlers = this.packetHandlers.get(packet);
+			if (!handlers) {
+				this.packetHandlers.set(packet, []);
+				return;
+			}
+			const rest = reader.copyRemainingToArrayBuffer();
+			for (const handler of handlers) {
+				const packet = new BufReader(rest);
+				handler(packet);
+			}
 		};
 	}
 
@@ -55,11 +93,18 @@ export class ControlPanel extends LitElement {
 	
 		this.websocket.close();
 		this.websocket = null;
-		console.log("WebSocket disconnect requested.");
+		this.connected = false;
 	}
 
 	createRenderRoot() {
 		return this
+	}
+
+	connectedCallback(): void {
+		super.connectedCallback()
+		
+		// Attempt auto connect
+		this.connect(false, "localhost", "5555")
 	}
 
 	render() {

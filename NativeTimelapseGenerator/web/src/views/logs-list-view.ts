@@ -1,11 +1,21 @@
 import { LitElement, html } from "lit";
 import { customElement, property } from "lit/decorators.js";
+import { ControlPanel, EventPacket } from "./control-panel";
+import { BufReader } from "nanobuf";
+
+type LogType = "info"|"warning"|"error";
 
 export type LogEntry = {
-	type: string;
-	time: Date;
-	message: string;
+	logType:LogType;
+	date: Date;
+	message: String;
 };
+
+export const logTypesMap:Map<number, LogType> = new Map<number, LogType>([
+	[ 0, "info" ],
+	[ 1, "warning" ],
+	[ 2, "error" ]
+]);
 
 @customElement("logs-list-view")
 export class LogsListView extends LitElement {
@@ -15,11 +25,10 @@ export class LogsListView extends LitElement {
 	@property({ type: String }) sortField: string = "time";
 	@property({ type: String }) sortOrder: "asc" | "desc" = "asc";
 
-
 	get filteredLogs() {
 		return this.logs
 			.filter(log =>
-				(!this.filterType || log.type === this.filterType) &&
+				(!this.filterType || log.logType === this.filterType) &&
 				(!this.searchQuery || log.message.toLowerCase().includes(this.searchQuery.toLowerCase()))
 			)
 			.sort((a, b) => {
@@ -64,6 +73,18 @@ export class LogsListView extends LitElement {
 		return this
 	}
 
+	connectedCallback(): void {
+		super.connectedCallback()
+
+		const parent = this.parentElement as ControlPanel;
+		parent.addPacketHandler(EventPacket.LogMessage, (packet:BufReader) =>  {
+			const type = logTypesMap.get(packet.u8())!;
+			const logDate = new Date(packet.u64() * 1000);
+			const msg = packet.str();
+			this.logs = [...this.logs, { logType: type, date: logDate, message: msg }];
+		})
+	}
+
 	render() {
 		return html`
 			<h2>Logs:</h2>
@@ -72,7 +93,7 @@ export class LogsListView extends LitElement {
 					Filter by Type:
 					<select @change="${this.updateFilterType}">
 						<option value="">All</option>
-						${[...new Set(this.logs.map(log => log.type))].map(
+						${[...new Set(this.logs.map(log => log.logType))].map(
 							type => html`<option value="${type}" ?selected="${type === this.filterType}">${type}</option>`
 						)}
 					</select>
@@ -82,25 +103,26 @@ export class LogsListView extends LitElement {
 					<input type="text" @input="${this.updateSearchQuery}" placeholder="Search logs..." />
 				</label>
 			</div>
-			<table>
-				<thead>
-					<tr>
-						<th @click="${() => this.updateSort("type")}">Type</th>
-						<th @click="${() => this.updateSort("time")}">Time</th>
-						<th @click="${() => this.updateSort("message")}">Message</th>
-					</tr>
-				</thead>
-				<tbody>
-					${this.filteredLogs.map(log => html`
-					<tr>
-						<td>${log.type}</td>
-						<td>${log.time.toLocaleString()}</td>
-						<td>${log.message}</td>
-					</tr>
-					`
-					)}
-				</tbody>
-			</table>
-	`
+			<div style="overflow: auto; height: calc(100% - 96px); border: 1px solid #ccc;">
+				<table style="width: 100%; border-collapse: collapse;">
+					<thead style="position: sticky;top: 0px;z-index: 1;background-color: #80808030;">
+						<tr>
+							<th @click="${() => this.updateSort("type")}">Type</th>
+							<th @click="${() => this.updateSort("time")}">Time</th>
+							<th @click="${() => this.updateSort("message")}">Message</th>
+						</tr>
+					</thead>
+					<tbody>
+						${this.filteredLogs.map(log => html`
+						<tr>
+							<td>${log.logType}</td>
+							<td>${log.date.toLocaleString()}</td>
+							<td>${log.message}</td>
+						</tr>
+						`
+						)}
+					</tbody>
+				</table>
+			</div>`
 	}
 }

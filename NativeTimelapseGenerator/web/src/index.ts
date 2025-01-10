@@ -1,4 +1,4 @@
-import { ComponentContainer, GoldenLayout, LayoutConfig, VirtualLayout } from "golden-layout";
+import { ComponentContainer, GoldenLayout, LayoutConfig } from "golden-layout";
 
 import "./views/control-panel.ts";
 import { ControlPanel } from "./views/control-panel.ts";
@@ -11,7 +11,7 @@ import { BackupsView } from "./views/backups-view.ts";
 import "./views/logs-list-view.ts";
 import { LogsListView } from "./views/logs-list-view.ts";
 
-document.addEventListener("DOMContentLoaded", async (e) => {
+document.addEventListener("DOMContentLoaded", async () => {
 	const controlPanel: ControlPanel = document.querySelector("control-panel") as ControlPanel;
 	await controlPanel.updateComplete;
 

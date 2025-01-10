@@ -17,29 +17,31 @@
 - GCC
 - .NET SDK
 
+### Dependencies:
+1. This project depends on [libfcall](https://www.gnu.org/software/libffcall/), which is a nightmare to build,
+  so it's sources have not been included as a submodule in this project. It is reccomended you use the
+  provided ffcall library for your distro for ffcall to work correctly. For example,
+  [ffcall](https://archlinux.org/packages/extra/x86_64/ffcall/) on arch.
+
 ### Build and Run
 
 1. Navigate to the project directory:
-
     ```sh
     cd NativeTimelapseGenerator
     ```
 
 2. Create a build directory and navigate into it:
-
     ```sh
     mkdir build && cd build
     ```
 
 3. Build the project:
-
     ```sh
     cmake ..
     cmake --build .
     ```
 
 4. Run the project:
-
     ```sh
     cmake --build . --target run
     ```
@@ -47,26 +49,22 @@
 ### Build and Run with Debug
 
 1. Navigate to the project directory:
-
     ```sh
     cd NativeTimelapseGenerator
     ```
 
 2. Create a build directory and navigate into it:
-
     ```sh
     mkdir build && cd build
     ```
 
 3. Build the project with debug flags:
-
     ```sh
     cmake -DCMAKE_BUILD_TYPE=Debug ..
     cmake --build .
     ```
 
 4. Run the project with debug:
-
     ```sh
     cmake --build . --target run_debug
     ```
@@ -74,13 +72,11 @@
 ### Clean Build Artifacts
 
 1. Navigate to the build directory:
-
     ```sh
     cd build
     ```
 
 2. Clean the build artifacts:
-
     ```sh
     cmake --build . --target clean
     ```

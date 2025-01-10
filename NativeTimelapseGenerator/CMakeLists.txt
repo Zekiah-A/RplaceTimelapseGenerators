@@ -1,3 +1,4 @@
+# Define project and standard settings
 cmake_minimum_required(VERSION 3.31)
 project(NativeTimelapseGenerator)
 
@@ -6,15 +7,13 @@ set(CMAKE_C_STANDARD 23)
 set(CMAKE_C_STANDARD_REQUIRED True)
 
 # Enable MS extensions
-if(MSVC)
-	add_compile_options(-fpermissive)
-else()
-	add_compile_options(-fms-extensions)
-endif()
+add_compile_options(-fms-extensions)
 
-# Default to debug build
-if(NOT CMAKE_BUILD_TYPE)
-	set(CMAKE_BUILD_TYPE Debug)
+# Set default build type for single-config generators
+if(CMAKE_GENERATOR STREQUAL "Ninja" OR CMAKE_GENERATOR STREQUAL "Unix Makefiles")
+	if(NOT CMAKE_BUILD_TYPE)
+		set(CMAKE_BUILD_TYPE Debug CACHE STRING "Build type" FORCE)
+	endif()
 endif()
 
 # Add preprocessor definition for debug builds
@@ -24,6 +23,11 @@ endif()
 
 # Include directories
 include_directories(${CMAKE_SOURCE_DIR})
+
+# Add subdirectories for libraries
+add_subdirectory(${CMAKE_SOURCE_DIR}/lib/parson)
+add_subdirectory(${CMAKE_SOURCE_DIR}/lib/libnanobuf)
+add_subdirectory(${CMAKE_SOURCE_DIR}/lib/libdill)
 
 # Manually add source files
 set(SOURCE_FILES
@@ -36,56 +40,51 @@ set(SOURCE_FILES
 	${CMAKE_SOURCE_DIR}/console.c
 )
 
-# Add subdirectory for parson library
-add_subdirectory(${CMAKE_SOURCE_DIR}/lib/parson)
-
-# Add stb
-include_directories(${CMAKE_SOURCE_DIR}/lib/stb)
-
-# Find libgit2 package
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(LIBGIT2 REQUIRED libgit2)
-
-# Find Cairo package
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(CAIRO REQUIRED cairo)
-
-# Find SQLite3 package
-find_package(SQLite3 REQUIRED)
-
 # Add executable
 add_executable(${PROJECT_NAME} ${SOURCE_FILES})
 
+# Find packages
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(LIBGIT2 REQUIRED libgit2)
+find_package(SQLite3 REQUIRED)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(CAIRO REQUIRED cairo)
+
 # Link libraries
-target_link_libraries(${PROJECT_NAME} png curl m parson ${LIBGIT2_LIBRARIES} SQLite::SQLite3 ${CAIRO_LIBRARIES})
+target_link_libraries(${PROJECT_NAME} PRIVATE png curl m dill nanobuf parson ffcall ${LIBGIT2_LIBRARIES} SQLite::SQLite3 ${CAIRO_LIBRARIES})
 
-# Detect C# source files
-#file(GLOB_RECURSE CSHARP_SOURCES ${CMAKE_SOURCE_DIR}/../NativeTimelapseGenerator.Console/**/*.cs)
+# Set web build directory variable
+set(WEB_BUILD_DIR ${CMAKE_SOURCE_DIR}/web/dist)
 
-# Custom command to build C# project
+# Detect web source files
+file(GLOB_RECURSE WEB_SOURCES ${CMAKE_SOURCE_DIR}/web/**/*)
+list(FILTER WEB_SOURCES EXCLUDE REGEX "${CMAKE_SOURCE_DIR}/web/dist/.*")
+list(FILTER WEB_SOURCES EXCLUDE REGEX "${CMAKE_SOURCE_DIR}/web/node_modules/.*")
+
+# Custom command to build web project
 add_custom_command(
-	OUTPUT ${CMAKE_SOURCE_DIR}/../NativeTimelapseGenerator.Console/bin/Release/net9.0/linux-x64/publish/NativeTimelapseGenerator.Console.so
-	COMMAND dotnet publish -r linux-x64 -c Release
-	WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/../NativeTimelapseGenerator.Console
-	#DEPENDS ${CSHARP_SOURCES} # Add C# sources as dependencies
-	COMMENT "Building C# project"
+	OUTPUT ${WEB_BUILD_DIR}
+	COMMAND bun run build
+	WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/web
+	DEPENDS ${WEB_SOURCES} 
+	COMMENT "Building web frontend"
 )
 
-# Custom target to build C# project
-add_custom_target(build_csharp ALL
-	DEPENDS ${CMAKE_SOURCE_DIR}/../NativeTimelapseGenerator.Console/bin/Release/net9.0/linux-x64/publish/NativeTimelapseGenerator.Console.so
+# Custom target to build web project
+add_custom_target(build_web ALL
+	DEPENDS ${WEB_BUILD_DIR}
 )
 
-# Custom command to copy C# publish files
+# Copy web publish files after build
 add_custom_command(
-	TARGET build_csharp POST_BUILD
+	TARGET build_web POST_BUILD
 	COMMAND ${CMAKE_COMMAND} -E copy_directory
-	${CMAKE_SOURCE_DIR}/../NativeTimelapseGenerator.Console/bin/Release/net9.0/linux-x64/publish
+	${WEB_BUILD_DIR}
 	${CMAKE_BINARY_DIR}
-	COMMENT "Copying C# publish files"
+	COMMENT "Copying web dist files to build directory"
 )
 
-# Custom command to copy schema.sql
+# Copy schema.sql to the build directory
 add_custom_command(
 	TARGET ${PROJECT_NAME} POST_BUILD
 	COMMAND ${CMAKE_COMMAND} -E copy
@@ -94,7 +93,7 @@ add_custom_command(
 	COMMENT "Copying schema.sql to build directory"
 )
 
-# Custom command to copy example_commit_hashes.txt
+# Copy example_commit_hashes.txt to the build directory
 add_custom_command(
 	TARGET ${PROJECT_NAME} POST_BUILD
 	COMMAND ${CMAKE_COMMAND} -E copy
@@ -103,28 +102,16 @@ add_custom_command(
 	COMMENT "Copying example_commit_hashes.txt to build directory"
 )
 
-# Build all targets
-add_custom_target(build_all
-	DEPENDS build_csharp ${PROJECT_NAME}
-)
-
-# Build all with debug target
-add_custom_target(build_all_debug
-	COMMAND ${CMAKE_COMMAND} -DCMAKE_BUILD_TYPE=Debug ${CMAKE_SOURCE_DIR}
-	COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR}
-	DEPENDS build_csharp
-)
-
 # Run the program
 add_custom_target(run
 	COMMAND ${CMAKE_BINARY_DIR}/${PROJECT_NAME}
-	DEPENDS build_all
+	DEPENDS ${PROJECT_NAME} build_web
 )
 
 # Run the program with debug
 add_custom_target(run_debug
-	COMMAND ${CMAKE_BINARY_DIR}/${PROJECT_NAME} --nocli
-	DEPENDS build_all_debug
+	COMMAND ${CMAKE_BINARY_DIR}/${PROJECT_NAME}
+	DEPENDS ${PROJECT_NAME} build_web
 )
 
 # Clean build artifacts

@@ -353,7 +353,7 @@ void* start_render_worker(void* data)
 	// Initialise worker / thread globals
 	const WorkerInfo* worker_info = (const WorkerInfo*) data;
 
-	log_message(LOG_HEADER"Started render worker with thread id %d", worker_info->worker_id, worker_info->thread_id);
+	log_message(LOG_INFO, LOG_HEADER"Started render worker with thread id %d", worker_info->worker_id, worker_info->thread_id);
 
 	// Enter render loop
 	while (true) {
@@ -362,7 +362,7 @@ void* start_render_worker(void* data)
 
 		RenderResult result = render(download_result);
 		if (result.render_error != RENDER_ERROR_NONE) {
-			log_message(LOG_HEADER"Render %s failed with error %d message %s", worker_info->worker_id, info.commit_hash, result.render_error, result.error_msg);
+			log_message(LOG_ERROR, LOG_HEADER"Render %s failed with error %d message %s", worker_info->worker_id, info.commit_hash, result.render_error, result.error_msg);
 			continue;
 		}
 		push_save_stack(result);

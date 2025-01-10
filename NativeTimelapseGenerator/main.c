@@ -15,26 +15,26 @@ const char* argp_program_bug_address = "<bug@example.com>";
 static char doc[] = "NativeTimelapseGenerator Generator -- A program to generate timelapses from rplace canvas data";
 static char args_doc[] = "";
 static struct argp_option options[] = {
-	{"no-cli", 'n', 0, 0, "Disable CLI"},
+	{"cli-only", 'c', 0, 0, "Disable CLI"},
 	{"repo-url", 'r', "URL", 0, "Repository URL"},
-	{"commit-hashes-file", 'c', "FILE", 0, "Commit hashes file path"},
+	{"commit-hashes-file", 'f', "FILE", 0, "Commit hashes file path"},
 	{"download-root-url", 'd', "URL", 0, "Download root URL"},
-	{"game-server-root-url", 's', "URL", 0, "Socket server root URL (HTTP)"},
+	{"game-server-root-url", 'g', "URL", 0, "Game server root URL (HTTP)"},
 	{"max-top-placers", 'p', "NUMBER", 0, "Max top placers listed"},
 	{0}
 };
 
 struct arguments {
 	Config;
-	bool no_cli;
+	bool cli_only;
 };
 
 static error_t parse_opt(int key, char* arg, struct argp_state* state) {
 	struct arguments* arguments = state->input;
 	
 	switch (key) {
-		case 'n':
-			arguments->no_cli = true;
+		case 'c':
+			arguments->cli_only = true;
 			break;
 		case 'r':
 			arguments->repo_url = arg;
@@ -42,10 +42,10 @@ static error_t parse_opt(int key, char* arg, struct argp_state* state) {
 		case 'd':
 			arguments->download_base_url = arg;
 			break;
-		case 'c':
+		case 'f':
 			arguments->commit_hashes_file_name = arg;
 			break;
-		case 's':
+		case 'g':
 			arguments->game_server_base_url = arg;
 			break;
 		case 'p':
@@ -82,17 +82,17 @@ int main(int argc, char *argv[]) {
 		.game_server_base_url = "https://server.rplace.live",
 		.commit_hashes_file_name = NULL,
 		.max_top_placers = 10,
-		.no_cli = false
+		.cli_only = false
 	};
 
 	argp_parse(&argp, argc, argv, 0, 0, &arguments);
-	if (!arguments.no_cli) {
+	if (!arguments.cli_only) {
 		// Start console thread
 		pthread_t thread_id;
 		pthread_create(&thread_id, NULL, start_console, NULL);
 	}
 
 	// Start main thread (will never return, and handle exiting itself)
-	start_main_thread(arguments.no_cli, *(Config*) &arguments);
+	start_main_thread(arguments.cli_only, *(Config*) &arguments);
 	return 0;
 }

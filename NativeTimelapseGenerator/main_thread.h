@@ -4,26 +4,20 @@
 #include <stddef.h>
 #include <time.h>
 #include <stdbool.h>
+#include <avcall.h>
 
 #include "workers/download_worker.h"
 #include "workers/render_worker.h"
 #include "workers/save_worker.h"
 #include "workers/worker_structs.h"
 
-typedef void* WorkFunction;
-typedef union {
-	void* args[8];
-} WorkFunctionArgs;
-
-typedef struct main_thread_work
-{
-	WorkFunction func;
-	int arg_count;
-	WorkFunctionArgs args;
-} MainThreadWork;
+typedef enum worker_status:uint8_t {
+	WORKER_STATUS_WAITING = 0,
+	WORKER_STATUS_ACTIVE = 1
+} WorkerStatus;
 
 typedef struct main_thread_queue {
-	struct main_thread_work* work;
+	av_alist* work;
 	size_t capacity;
 	size_t front;
 	size_t rear;
@@ -43,6 +37,7 @@ typedef struct worker_info {
 	// Per thread / worker
 	int worker_id;
 	pthread_t thread_id;
+	WorkerStatus status;
 	union
 	{
 		DownloadWorkerInstance* download_worker_instance;
@@ -60,13 +55,13 @@ typedef struct worker_info {
 	};
 } WorkerInfo;
 
-typedef enum worker_type {
-	DOWNLOAD_WORKER_TYPE = 0,
-	RENDER_WORKER_TYPE = 1,
-	SAVE_WORKER_TYPE = 2
+typedef enum worker_type:uint8_t {
+	WORKER_TYPE_DOWNLOAD = 0,
+	WORKER_TYPE_RENDER = 1,
+	WORKER_TYPE_SAVE = 2
 } WorkerType;
 
-void main_thread_post(MainThreadWork work);
+void main_thread_post(av_alist work);
 
 // STRICT: Call from main thread only
 void start_main_thread(bool start, Config config);
@@ -89,6 +84,9 @@ void add_save_worker();
 void remove_save_worker();
 // STRICT: Call on main thread only - POST
 void collect_backup_stats();
+
+// Better to call on main thread but shouldn't cause issues otherwise
+WorkerInfo** get_workers(WorkerType type);
 
 // Called by download worker
 CanvasInfo pop_download_stack(int worker_id);

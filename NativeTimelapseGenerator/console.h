@@ -1,14 +1,15 @@
 #pragma once
 #include "workers/worker_structs.h"
+#include "main_thread.h"
 
-typedef enum worker_step {
-	WORKER_STEP_DOWNLOAD = 0,
-	WORKER_STEP_RENDER = 1,
-	WORKER_STEP_SAVE = 2
-} WorkerStep;
+typedef enum log_type {
+	LOG_INFO,
+	LOG_WARNING,
+	LOG_ERROR
+} LogType;
 
-void update_worker_stats(WorkerStep worker_step, int count);
+void update_worker_stats(WorkerType worker_type, int count);
 void update_backups_stats(int backups_total, float backups_per_second, CanvasInfo current_info);
-void log_message(const char* format, ...);
+void log_message(LogType type, const char* format, ...);
 void* start_console(void*);
 void stop_console();

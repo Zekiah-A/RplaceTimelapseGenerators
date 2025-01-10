@@ -9,7 +9,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/NativeTimelapseGenerator/build/NativeTimelapseGenerator",
-            "args": [ "--no-cli", "--commit-hashes-file=example_commit_hashes.txt" ],
+            "args": [ "--commit-hashes-file=example_commit_hashes.txt" ],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/NativeTimelapseGenerator/build",
             "environment": [],

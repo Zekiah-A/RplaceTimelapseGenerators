@@ -11,7 +11,6 @@
 #include "../memory_utils.h"
 #include "../main_thread.h"
 
-#define STB_DS_IMPLEMENTATION
 #include "../lib/stb/stb_ds.h"
 #include "../lib/parson/parson.h"
 #include "worker_structs.h"
@@ -278,7 +277,7 @@ void* start_download_worker(void* data)
 	CURL* curl_handle = curl_easy_init();
 	worker_info->download_worker_instance->curl_handle = curl_handle;
 
-	log_message(LOG_HEADER"Started download worker with thread id %d", worker_info->worker_id, worker_info->thread_id);
+	log_message(LOG_INFO, LOG_HEADER"Started download worker with thread id %d", worker_info->worker_id, worker_info->thread_id);
 
 	// Enter download loop
 	while (true) {
@@ -286,7 +285,7 @@ void* start_download_worker(void* data)
 
 		DownloadResult result = download(worker_info, canvas_info);
 		if (result.download_error != DOWNLOAD_ERROR_NONE) {
-			log_message(LOG_HEADER"Download %s failed with error %d message %s", worker_info->worker_id, canvas_info.commit_hash, result.download_error, result.error_msg);
+			log_message(LOG_ERROR, LOG_HEADER"Download %s failed with error %d message %s", worker_info->worker_id, canvas_info.commit_hash, result.download_error, result.error_msg);
 			continue;
 		}
 		push_render_stack(result);
