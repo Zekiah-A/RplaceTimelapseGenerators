@@ -99,14 +99,12 @@ struct image_result generate_top_placers_image(Placer* top_placers, int top_plac
 	cairo_set_antialias(cr, CAIRO_ANTIALIAS_GRAY);
 
 	// Draw text
-	cairo_set_source_rgb(cr, 1, 1, 1); // White
-
 	for (int i = 0; i < top_placers_size; i++) {
 		Placer placer = top_placers[i];
+		cairo_set_source_rgb(cr, placer.colour.r, placer.colour.g, placer.colour.b); // Placer colour
 
 		AUTOFREE char* top_placer_text = NULL;
 		asprintf(&top_placer_text, "%s (#%d) : %d pixels", placer.chat_name, placer.int_id, placer.pixels_placed);
-
 
 		cairo_move_to(cr, 0,  i * font_size);
 		cairo_show_text(cr, top_placer_text);
@@ -115,9 +113,80 @@ struct image_result generate_top_placers_image(Placer* top_placers, int top_plac
 	return result;
 }
 
-struct image_result generate_canvas_control_image()
+struct image_result generate_canvas_control_image(int width, int height, uint32_t* placers, Placer* top_placers, int top_placers_size)
 {
 	struct image_result result = { .error = RENDER_ERROR_NONE, .error_msg = NULL };
+	if (width == 0 || height == 0) {
+		result.error = RENDER_FAIL_DRAW;
+		result.error_msg = strdup("Canvas width or height was zero");
+		return result;
+	}
+
+	png_structp png_ptr = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+	if (png_ptr == NULL) {
+		result.error = RENDER_FAIL_DRAW;
+		result.error_msg = strdup("PNG create write struct failed. png_ptr was null");
+		png_destroy_write_struct(&png_ptr, NULL);
+		return result;
+	}
+
+	png_infop info_ptr = png_create_info_struct(png_ptr);
+	if (info_ptr == NULL) {
+		result.error = RENDER_FAIL_DRAW;
+		result.error_msg = strdup("PNG create info struct failed. info_ptr was null");
+		png_destroy_write_struct(&png_ptr, NULL);
+		return result;
+	}
+
+	char* stream_buffer = NULL;
+	size_t stream_length = 0;
+	FILE* memory_stream = open_memstream(&stream_buffer, &stream_length);
+	if (memory_stream == NULL) {
+		result.error = RENDER_FAIL_DRAW;
+		result.error_msg = strdup("Failed to open canvas image memory stream");
+		png_destroy_write_struct(&png_ptr, &info_ptr);
+		return result;
+	}
+
+	png_init_io(png_ptr, memory_stream);
+	png_set_IHDR(png_ptr, info_ptr, width, height, 8, PNG_COLOR_TYPE_RGBA, PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
+	png_write_info(png_ptr, info_ptr);
+
+	png_bytep row_pointers[height];
+	
+	// Transform byte array data into PNG
+	for (int y = 0; y < height; y++) {
+		row_pointers[y] = (png_bytep) calloc(sizeof(Colour) * width, sizeof(png_byte));
+		for (int x = 0; x < width; x++) {
+			int index = y * width + x;
+			uint32_t user_int_id = placers[index];
+
+			Placer top_placer;
+			for (int i = 0; i < top_placers_size; i++) {
+				if (top_placers[i].int_id == user_int_id) {
+					top_placer = top_placers[i];
+				}
+			}
+
+			for (int p = 0; p < sizeof(Colour); p++) { // r g b colour components
+				row_pointers[y][sizeof(Colour) * x + p] = top_placer.colour.channels[p];
+			}
+		}
+	}
+
+	png_write_image(png_ptr, row_pointers);
+
+	for (int i = 0; i < height; i++) {
+		free(row_pointers[i]);
+	}
+	png_write_end(png_ptr, NULL);
+
+	fflush(memory_stream);
+	fclose(memory_stream);
+	png_destroy_write_struct(&png_ptr, &info_ptr);
+	
+	result.image = (uint8_t*) stream_buffer;
+	result.image_size = stream_length;
 	return result;
 }
 
@@ -321,7 +390,8 @@ RenderResult render(DownloadResult download_result)
 		return (RenderResult) { .render_error = canvas_result.error, .error_msg = canvas_result.error_msg };
 	}
 
-	struct image_result canvas_control_result = generate_canvas_control_image();
+	struct image_result canvas_control_result = generate_canvas_control_image(download_result.width, download_result.height,
+		download_result.placers, download_result.top_placers, download_result.top_placers_size);
 	if (canvas_control_result.error != RENDER_ERROR_NONE) {
 		return (RenderResult) { .render_error = canvas_result.error, .error_msg = canvas_result.error_msg };
 	}

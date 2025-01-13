@@ -71,7 +71,7 @@ export class WorkerManager extends LitElement {
 	connectedCallback(): void {
 		super.connectedCallback();
 
-		const managerView = this.parentElement as WorkerManagerView;
+		const managerView = this.parentElement?.parentElement as WorkerManagerView;
 		managerView.addWorkerHandler(this.workerType, (packet: BufReader) => {
 			this.handleWorkerPacket(packet);
 		});
@@ -139,18 +139,8 @@ export class WorkerManagerView extends LitElement {
 		parent.addPacketHandler(EventPacket.WorkerStatus, (packet: BufReader) => {
 			const workerTypeCount = packet.u8();
 			for (let i = 0; i < workerTypeCount; i++) {
-				const workerType = workerTypesMap.get(packet.u8());
-				if (workerType && this.workerUpdateHandlers.has(workerType)) {
-					this.workerUpdateHandlers.get(workerType)!(packet);
-				}
-				else {
-					// TODO: Make some in-packet way to do better
-					const workerCount = packet.u8();
-					for (let j = 0; j < workerCount; j++) {
-						packet.u8(); // workerId
-						packet.u8(); // status
-					}
-				}
+				const workerType = workerTypesMap.get(packet.u8())!;
+				this.workerUpdateHandlers.get(workerType)!(packet);
 			}
 		});
 	}

@@ -1,5 +1,6 @@
 #include "lib/libnanobuf/buf_writer.h"
 #include <linux/limits.h>
+#include <pthread.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,6 +13,7 @@
 #include <dirent.h>
 #include <sys/stat.h>
 #include <avcall.h>
+#include <signal.h>
 
 #include "lib/libdill/libdill.h"
 #include "lib/libnanobuf/nanobuf.h"
@@ -55,7 +57,7 @@ void ui_start_generation(Config config)
 // Called by UI thread, must pass back to main thread
 void ui_stop_generation()
 {
-	printf("Generator CLI application halted. Application will terminate immediately\n");
+	log_message(LOG_INFO, "Generator CLI application halted. Application will terminate immediately");
 	av_alist stop_alist;
 	av_start_void(stop_alist, &stop_generation); 
 	main_thread_post(stop_alist);
@@ -156,10 +158,17 @@ coroutine void ws_listen(int socket)
 		switch (type) {
 			case CONTROL_PACKET_START: {
 				Config config = { 0 };
-				config.repo_url = nb_to_cstr(br_str(packet));
+				// Nullable
+				char* repo_url_str = nb_to_cstr(br_str(packet));
+				config.repo_url = strlen(repo_url_str) >  0 ? repo_url_str : NULL;
+				
 				config.download_base_url = nb_to_cstr(br_str(packet));
 				config.game_server_base_url = nb_to_cstr(br_str(packet));
-				config.commit_hashes_file_name = nb_to_cstr(br_str(packet));
+				
+				// Nullable
+				char* commit_hashes_str = nb_to_cstr(br_str(packet));
+				config.commit_hashes_file_name = strlen(commit_hashes_str) > 0 ? commit_hashes_str : NULL;
+				
 				config.max_top_placers = br_u32(packet);
 				ui_start_generation(config);
 				break;
@@ -328,7 +337,7 @@ void handle_http(int socket)
 	char resource[256];
 	int rc = http_recvrequest(socket, command, sizeof(command), resource, sizeof(resource), -1);
 	if (rc < 0) {
-		printf("Error receiving request: %d - %s\n", errno, strerror(errno));
+		log_message(LOG_ERROR, "Error receiving request: %d - %s", errno, strerror(errno));
 		return;
 	}
 
@@ -366,7 +375,7 @@ void handle_http(int socket)
 	// HTTP file request 
 	http_sendstatus(socket, 200, "OK", -1);
 	if (resource[0] != '/') {
-		fprintf(stderr, "Invalid resource path\n");
+		log_message(LOG_ERROR, "Invalid resource path");
 		return;
 	}
 	if (str_ends_with(resource, "css")) {
@@ -443,21 +452,109 @@ void handle_http(int socket)
 	tcp_close(socket, -1);
 }
 
-void* start_console(void* _)
+void parse_command(char* input)
+{
+	char* command = strtok(input, " ");
+	if (!command) {
+		return;
+	}
+
+	if (strcmp(command, "start_generation") == 0) {
+		char* repo_url = strtok(NULL, " ");
+		char* download_base_url = strtok(NULL, " ");
+		char* commit_hashes_file_name = strtok(NULL, " ");
+		char* game_server_base_url = strtok(NULL, " ");
+		char* max_top_placers_str = strtok(NULL, " ");
+		int max_top_placers = atoi(max_top_placers_str);
+		if (repo_url && download_base_url && commit_hashes_file_name && game_server_base_url) {
+			Config config = (Config) {
+				repo_url,
+				download_base_url,
+				commit_hashes_file_name,
+				game_server_base_url,
+				max_top_placers
+			};
+			ui_start_generation(config);
+		}
+		else {
+			log_message(LOG_ERROR, "Invalid arguments for start_generatio");
+		}
+	}
+	else if (strcmp(command, "stop_generation") == 0) {
+		ui_stop_generation();
+	}
+	else if (strcmp(command, "add_worker") == 0) {
+		char* worker_type_str = strtok(NULL, " ");
+		char* add_str = strtok(NULL, " ");
+		if (worker_type_str && add_str) {
+			int worker_type = atoi(worker_type_str);
+			int add = atoi(add_str);
+			ui_add_worker(worker_type, add);
+		}
+		else {
+			log_message(LOG_ERROR, "Invalid arguments for add_worker");
+		}
+	}
+	else if (strcmp(command, "remove_worker") == 0) {
+		char* worker_type_str = strtok(NULL, " ");
+		char* remove_str = strtok(NULL, " ");
+		if (worker_type_str && remove_str) {
+			int worker_type = atoi(worker_type_str);
+			int remove = atoi(remove_str);
+			ui_remove_worker(worker_type, remove);
+		}
+		else {
+			log_message(LOG_ERROR, "Invalid arguments for remove_worker");
+		}
+	}
+	else {
+		log_message(LOG_ERROR, "Unknown command: %s", command);
+	}
+}
+
+volatile sig_atomic_t repl_keep_running = 1;
+void handle_sigint(int _)
+{
+	repl_keep_running = 0;
+	log_message(LOG_INFO, "Stopping NativeTimelapseGenerator");
+	stop_generation();
+	stop_console();
+}
+
+void* start_repl(void* _)
+{
+	struct sigaction sa;
+	sa.sa_handler = handle_sigint;
+	sa.sa_flags = 0;
+	sigemptyset(&sa.sa_mask);
+	sigaction(SIGINT, &sa, NULL);
+
+	char* input = NULL;
+	while (repl_keep_running && (input = readline("> ")) != NULL) {
+		if (strlen(input) > 0) {
+			add_history(input);
+			parse_command(input);
+		}
+		free(input);
+	}
+
+	return NULL;
+}
+
+bool socket_keep_running = true;
+void start_socket()
 {
 	log_message(LOG_INFO, "Starting web frontend...");
 	struct ipaddr addr;
 	ipaddr_local(&addr, NULL, 5555, 0);
 	int listener = tcp_listen(&addr, 10);
 	if (listener < 0) {
-		log_message(LOG_ERROR, "Failed to start console: tcp_listen failed with error %d %s", errno, strerror(errno));
-		return NULL;
+		log_message(LOG_ERROR, "Failed to start socket: tcp_listen failed with error %d %s", errno, strerror(errno));
+		return;
 	}
-
 	log_message(LOG_INFO, "Started hosting web frontend at http://localhost:5555");
-	//system("xdg-open http://localhost:5555");
 
-	while (true) {
+	while (socket_keep_running) {
 		int socket = tcp_accept(listener, NULL, -1);
 		if (socket < 0) {
 			log_message(LOG_ERROR, "Failed to accept tcp connection: %d %s", errno, strerror(errno));
@@ -466,17 +563,26 @@ void* start_console(void* _)
 
 		handle_http(socket);
 	}
+}
+
+pthread_t repl_thread_id;
+void* start_console(void* _)
+{
+	start_socket();
+	pthread_create(&repl_thread_id, NULL, start_repl, NULL);
 	return NULL;
 }
 
 void stop_console()
 {
-	log_message(LOG_INFO, "Stopping console && disconnecting ws clients...");
+	log_message(LOG_INFO, "Stopping console & disconnecting ws clients...");
 	for (int i =  0; i < arrlen(event_sockets); i++) {
 		ws_disconnect(event_sockets[i]);
 	}
 
-	// TODO: Stop webserver
+	repl_keep_running = 0;
+	pthread_cancel(	repl_thread_id);
+	socket_keep_running = false;
 }
 
 void log_message(LogType type, const char* format, ...)
@@ -510,9 +616,15 @@ void log_message(LogType type, const char* format, ...)
 	bw_destroy(packet, true);
 
 	// Print to console
-	AUTOFREE char* print = NULL;
-	asprintf(&print, "log_message: %s", buffer);
-	puts(print);
+	if (type == LOG_INFO) {
+		fprintf(stdout, "log_message: [INFO] %s\n", buffer);
+	}
+	else if (type == LOG_WARNING) {
+		fprintf(stderr, "\x1b[33mlog_message: [WARNING] %s\x1b[0m\n", buffer);
+	}
+	else if (type == LOG_ERROR) {
+		fprintf(stderr, "\x1b[31mlog_message: [ERROR] %s\x1b[0m\n", buffer);
+	}
 }
 
 void update_worker_stats(WorkerType worker_type, int count)
@@ -520,7 +632,7 @@ void update_worker_stats(WorkerType worker_type, int count)
 	// TODO: Send websocket update
 
 	AUTOFREE char* print = NULL;
-	asprintf(&print, "worker_stats: type: %d count: %d", worker_type, count);
+	asprintf(&print, "\x1b[34mworker_stats: type: %d count: %d\x1b[0m", worker_type, count);
 	puts(print);
 }
 
@@ -529,6 +641,6 @@ void update_backups_stats(int backups_total, float backups_per_second, CanvasInf
 	// TODO: Send websocket update
 
 	AUTOFREE char* print = NULL;
-	asprintf(&print, "backups_stats: generated: %d per second: %f processing: %li", backups_total, backups_per_second, current_info.date);
+	asprintf(&print, "\x1b[36mbackups_stats: generated: %d per second: %f processing: %li\x1b[0m", backups_total, backups_per_second, current_info.date);
 	puts(print);
 }

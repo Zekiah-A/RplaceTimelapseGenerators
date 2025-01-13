@@ -7,6 +7,7 @@
 // Shared between all download workers
 typedef struct download_worker_shared
 {
+	struct { uint32_t key; User* value; }* user_map;
 } DownloadWorkerShared;
 
 // Instance / worker / per thread members

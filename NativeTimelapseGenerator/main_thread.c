@@ -64,7 +64,9 @@ sqlite3* _database = NULL;
 Config _config = { 0 };
 
 // WORKER DATAS
-DownloadWorkerShared _download_worker_shared;
+DownloadWorkerShared _download_worker_shared = {
+	.user_map = NULL
+};
 RenderWorkerShared _render_worker_shared;
 SaveWorkerShared _save_worker_shared;
 
@@ -74,7 +76,7 @@ void init_work_queue(MainThreadQueue* queue, size_t capacity)
 	queue->work = (av_alist*) malloc(sizeof(av_alist) * capacity);
 	if (!queue->work) {
 		stop_console();
-		fprintf(stderr, "Failed to initialise main thread work queue\n");
+		log_message(LOG_ERROR, "Failed to initialise main thread work queue\n");
 		exit(EXIT_FAILURE);
 	}
 
@@ -92,7 +94,7 @@ void push_work_queue(MainThreadQueue* queue, av_alist work)
 	// Check for queue overflow
 	if ((queue->rear + 1) % queue->capacity == queue->front) {
 		stop_console();
-		fprintf(stderr, "Error - Work queue overflow.\n");
+		log_message(LOG_ERROR, "Error - Work queue overflow.\n");
 		pthread_mutex_unlock(&queue->mutex);
 		exit(EXIT_FAILURE);
 	}
@@ -112,7 +114,7 @@ av_alist pop_work_queue(MainThreadQueue* queue)
 	// Check underflow
 	if (queue->front == queue->rear) {
 		stop_console();
-		fprintf(stderr, "Error - Work queue underflow.\n");
+		log_message(LOG_ERROR, "Error - Work queue underflow.\n");
 		pthread_mutex_unlock(&queue->mutex);
 		exit(EXIT_FAILURE);
 	}
@@ -212,7 +214,7 @@ void remove_save_worker()
 {
 	if (arrlen(save_workers) <= 0) {
 		stop_console();
-		fprintf(stderr, "Couldn't remove save worker: save worker count <= 0");
+		log_message(LOG_ERROR, "Couldn't remove save worker: save worker count <= 0");
 		exit(EXIT_FAILURE);
 	}
 	WorkerInfo* info = arrpop(save_workers);
@@ -377,7 +379,7 @@ void* read_commit_hashes(FILE* file)
 
 	if (download_stack.top < 0) {
 		stop_console();
-		fprintf(stderr, "Could not find any unprocessed backups from commit_hashes.txt\n");
+		log_message(LOG_ERROR, "Could not find any unprocessed backups from commit_hashes.txt\n");
 		exit(EXIT_SUCCESS);
 	}
 	return NULL;
@@ -424,7 +426,7 @@ void append_new_commits_to_log(git_repository* repo, const char* log_file_name)
 	git_revwalk* walker = NULL;
 	if (git_revwalk_new(&walker, repo) != 0) {
 		const git_error* e = git_error_last();
-		fprintf(stderr, "Error creating revwalk: %s\n", e->message);
+		log_message(LOG_ERROR, "Error creating revwalk: %s\n", e->message);
 		return;
 	}
 
@@ -433,7 +435,7 @@ void append_new_commits_to_log(git_repository* repo, const char* log_file_name)
 
 	FILE* log_file = fopen(log_file_name, "a");
 	if (!log_file) {
-		fprintf(stderr, "Error opening log file for appending\n");
+		log_message(LOG_ERROR, "Error opening log file for appending\n");
 		git_revwalk_free(walker);
 		return;
 	}
@@ -444,7 +446,7 @@ void append_new_commits_to_log(git_repository* repo, const char* log_file_name)
 		git_commit* commit = NULL;
 		if (git_commit_lookup(&commit, repo, &oid) != 0) {
 			const git_error* e = git_error_last();
-			fprintf(stderr, "Error looking up commit: %s\n", e->message);
+			log_message(LOG_ERROR, "Error looking up commit: %s\n", e->message);
 			continue;
 		}
 
@@ -489,7 +491,7 @@ const char* get_repo_commit_hashes(const char* repo_url)
 			git_repository* repo = NULL;
 			if (git_repository_open(&repo, repo_path) != 0) {
 				const git_error* e = git_error_last();
-				fprintf(stderr, "Error opening repository: %s\n", e->message);
+				log_message(LOG_ERROR, "Error opening repository: %s\n", e->message);
 				git_libgit2_shutdown();
 				return NULL;
 			}
@@ -510,7 +512,7 @@ const char* get_repo_commit_hashes(const char* repo_url)
 	log_message(LOG_INFO, LOG_HEADER"Starting repository clone...");
 	if (git_clone(&repo, repo_url, repo_path, &clone_opts) != 0) {
 		const git_error* e = git_error_last();
-		fprintf(stderr, "Error cloning repository: %s\n", e->message);
+		log_message(LOG_ERROR, "Error cloning repository: %s\n", e->message);
 		git_libgit2_shutdown();
 		return NULL;
 	}
@@ -520,7 +522,7 @@ const char* get_repo_commit_hashes(const char* repo_url)
 	git_revwalk* walker = NULL;
 	if (git_revwalk_new(&walker, repo) != 0) {
 		const git_error* e = git_error_last();
-		fprintf(stderr, "Error creating revwalk: %s\n", e->message);
+		log_message(LOG_ERROR, "Error creating revwalk: %s\n", e->message);
 		git_repository_free(repo);
 		git_libgit2_shutdown();
 		return NULL;
@@ -532,7 +534,7 @@ const char* get_repo_commit_hashes(const char* repo_url)
 
 	FILE* log_file = fopen(log_file_name, "w");
 	if (!log_file) {
-		fprintf(stderr, "Error opening log file for writing\n");
+		log_message(LOG_ERROR, "Error opening log file for writing\n");
 		git_revwalk_free(walker);
 		git_repository_free(repo);
 		git_libgit2_shutdown();
@@ -546,7 +548,7 @@ const char* get_repo_commit_hashes(const char* repo_url)
 		git_commit* commit = NULL;
 		if (git_commit_lookup(&commit, repo, &oid) != 0) {
 			const git_error* e = git_error_last();
-			fprintf(stderr, "Error looking up commit: %s\n", e->message);
+			log_message(LOG_ERROR, "Error looking up commit: %s\n", e->message);
 			continue;
 		}
 
@@ -669,7 +671,7 @@ void start_generation(Config config)
 	}
 	if (!log_file_name) {
 		stop_console();
-		log_message(LOG_ERROR, LOG_HEADER"Error, could not locate commit hashes file\n");
+		log_message(LOG_ERROR, LOG_HEADER"Couldn't locate commit hashes file\n");
 		exit(EXIT_FAILURE);
 	}
 
@@ -677,7 +679,7 @@ void start_generation(Config config)
 	FILE* file = fopen(log_file_name, "r");
 	if (file == NULL) {
 		stop_console();
-		log_message(LOG_ERROR, LOG_HEADER"Error, could not locate commit hashes file (%s)\n", log_file_name);
+		log_message(LOG_ERROR, LOG_HEADER"Couldn't locate commit hashes file (%s)\n", log_file_name);
 		exit(EXIT_FAILURE);
 	}
 	commit_hashes_stream = file;
@@ -750,11 +752,11 @@ void safe_segfault_exit(int sig_num)
 	size = backtrace(stack_pointers, 10);
 
 	// print out all the frames to stderr
-	fprintf(stderr, "Error: signal %d:\n", sig_num);
+	log_message(LOG_ERROR, "Error: signal %d:\n", sig_num);
 	backtrace_symbols_fd(stack_pointers, size, STDERR_FILENO);
 
 	stop_console();
-	fprintf(stderr, "Fatal - Segmentation fault\n");
+	log_message(LOG_ERROR, "Fatal - Segmentation fault\n");
 
 	exit(EXIT_FAILURE);
 }

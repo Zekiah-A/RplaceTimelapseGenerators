@@ -51,7 +51,7 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(CAIRO REQUIRED cairo)
 
 # Link libraries
-target_link_libraries(${PROJECT_NAME} PRIVATE png curl m dill nanobuf parson ffcall ${LIBGIT2_LIBRARIES} SQLite::SQLite3 ${CAIRO_LIBRARIES})
+target_link_libraries(${PROJECT_NAME} PRIVATE png curl m readline dill nanobuf parson ffcall ${LIBGIT2_LIBRARIES} SQLite::SQLite3 ${CAIRO_LIBRARIES})
 
 # Set web build directory variable
 set(WEB_BUILD_DIR ${CMAKE_SOURCE_DIR}/web/dist)

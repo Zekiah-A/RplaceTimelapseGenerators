@@ -37,6 +37,16 @@ struct fetch_result {
 	const char* error_msg;
 };
 
+Colour colour_hash(const char* text)
+{
+	uint32_t hash = 0;
+	while (*text) {
+		hash = (hash * 31 + (unsigned char)(*text)) & 0xFFFFFFFF;
+		text++;
+	}
+	return (Colour) { .value = hash };
+}
+
 size_t fetch_memory_callback(void* contents, size_t size, size_t nmemb, void* userp)
 {
 	size_t real_size;
@@ -45,7 +55,7 @@ size_t fetch_memory_callback(void* contents, size_t size, size_t nmemb, void* us
 	// Check for size overflow
 	if (size > 0 && nmemb > SIZE_MAX / size) {
 		stop_console();
-		fprintf(stderr, "Size overflow in fetch_memory_callback\n");
+		log_message(LOG_ERROR, "Size overflow in fetch_memory_callback\n");
 		exit(EXIT_FAILURE);
 	}
 	real_size = size * nmemb;
@@ -90,7 +100,7 @@ struct canvas_metadata download_canvas_metadata(const char* metadata_url, CURL* 
 	struct fetch_result metadata_response = fetch_url(metadata_url, curl_handle);
 
 	if (metadata_response.size == 0) {
-		fprintf(stderr, "Error fetching metadata from %s\n", metadata_url);
+		log_message(LOG_ERROR, "Error fetching metadata from %s\n", metadata_url);
 		free(metadata_response.memory);
 		return metadata;
 	}
@@ -107,7 +117,7 @@ struct canvas_metadata download_canvas_metadata(const char* metadata_url, CURL* 
 	metadata.palette_size = palette_size;
 	metadata.palette = malloc(palette_size * sizeof(Colour));
 	if (metadata.palette == NULL) {
-		fprintf(stderr, "Memory allocation failed for palette\n");
+		log_message(LOG_ERROR, "Memory allocation failed for palette\n");
 		json_value_free(root);
 		free(metadata_response.memory);
 		return metadata;
@@ -133,12 +143,21 @@ struct canvas_metadata download_canvas_metadata(const char* metadata_url, CURL* 
 User* get_user(const WorkerInfo* worker_info, int int_id)
 {
 	const Config* config = worker_info->config;
+	DownloadWorkerShared* shared = worker_info->download_worker_shared;
 	DownloadWorkerInstance* instance = worker_info->download_worker_instance;
 
-	// TODO: Pull from global download worker data hash map caches instead of requesting if already exists
+	// Check cache first
+	if (shared->user_map != NULL) {
+		User* cached_user = hmget(shared->user_map, int_id);
+		if (cached_user != NULL) {
+			return cached_user;
+		}
+	}
 
 	AUTOFREE char* user_url = NULL;
-	asprintf(&user_url, "%s/users/%d", config->game_server_base_url, int_id);
+	if (asprintf(&user_url, "%s/users/%d", config->game_server_base_url, int_id) == -1) {
+		return NULL;
+	}
 
 	struct fetch_result user_response = fetch_url(user_url, instance->curl_handle);
 	if (user_response.size == 0) {
@@ -149,20 +168,41 @@ User* get_user(const WorkerInfo* worker_info, int int_id)
 	memcpy(json_string, user_response.memory, user_response.size);
 	json_string[user_response.size] = '\0';
 
-	User* user = malloc(sizeof(User));
 	JSON_Value* root = json_parse_string(json_string);
+	if (!root) {
+		return NULL;
+	}
 	JSON_Object* root_obj = json_value_get_object(root);
-	JSON_Value* chat_name_value = json_object_get_value(root_obj, "chatName");
-	user->chat_name = json_value_get_string(chat_name_value);
-	JSON_Value* last_joined_value = json_object_get_value(root_obj, "lastJoined");
-	user->last_joined = (time_t) json_value_get_number(last_joined_value);
-	JSON_Value* pixels_placed_value = json_object_get_value(root_obj, "pixelsPlaced");
-	user->pixels_placed = json_value_get_number(pixels_placed_value);
-	JSON_Value* play_time_seconds_value = json_object_get_value(root_obj, "playTimeSeconds");
-	user->play_time_seconds = json_value_get_number(play_time_seconds_value);
+	if (!root_obj) {
+		json_value_free(root);
+		return NULL;
+	}
+	User* user = malloc(sizeof(User));
+	if (!user) {
+		json_value_free(root);
+		return NULL;
+	}
+	const char* chat_name = json_object_get_string(root_obj, "chatName");
+	if (!chat_name) {
+		free(user);
+		json_value_free(root);
+		return NULL;
+	}
+	user->chat_name = strdup(chat_name);
+	if (!user->chat_name) {
+		free(user);
+		json_value_free(root);
+		return NULL;
+	}
+	user->last_joined = (time_t)json_object_get_number(root_obj, "lastJoined");
+	user->pixels_placed = json_object_get_number(root_obj, "pixelsPlaced");
+	user->play_time_seconds = json_object_get_number(root_obj, "playTimeSeconds");
+	json_value_free(root);
+
+	// Cache user in global download worker user map
+	hmput(shared->user_map, int_id, user);
 	return user;
 }
-
 
 struct top_placers get_top_placers(const WorkerInfo* worker_info, uint32_t* placers, size_t placers_size, size_t max_count)
 {
@@ -170,7 +210,7 @@ struct top_placers get_top_placers(const WorkerInfo* worker_info, uint32_t* plac
 	
 	for (uint32_t i = 0; i < placers_size; i++) {
 		int user_int_id = placers[i];
-		uint32_t current_placed = hmget(placer_counts, i);
+		uint32_t current_placed = hmget(placer_counts, user_int_id);
 		hmput(placer_counts, user_int_id, current_placed + 1);
 	}
 
@@ -181,26 +221,37 @@ struct top_placers get_top_placers(const WorkerInfo* worker_info, uint32_t* plac
 		uint32_t user_int_id = placer_counts[i].key;
 		uint32_t placed = placer_counts[i].value;
 
-		// Compare against top placers and reorder if necessary
+		// Find insertion position
+		size_t insert_pos = max_count;
 		for (size_t j = 0; j < max_count; j++) {
-			if (placed > top_placers[i].pixels_placed) {
-				// We only request the user if they are actually going to end up on the leaderboard
-				User* user = get_user(worker_info, user_int_id);
-				if (user == NULL) {
-					break;
-				}
-				
-				// Move existing top placers down
-				memcpy(&top_placers[i - 1], &top_placers[i], (max_count - i - 1) * sizeof(Placer));
-				
-				// Add new top placer to top placers list
-				Placer new_top_placer = { .int_id =  user_int_id, .chat_name = user->chat_name, .pixels_placed = placed };
-				top_placers[i] = new_top_placer;
+			if (placed > top_placers[j].pixels_placed) {
+				insert_pos = j;
 				break;
+			}
+		}
+
+		if (insert_pos < max_count) {
+			User* user = get_user(worker_info, user_int_id);
+			if (user) {
+				// Shift elements down
+				if (insert_pos < max_count - 1) {
+					memmove(&top_placers[insert_pos + 1], 
+						&top_placers[insert_pos], 
+						(max_count - insert_pos - 1) * sizeof(Placer));
+				}
+
+				// Insert new placer
+				top_placers[insert_pos] = (Placer){
+					.int_id = user_int_id,
+					.chat_name = user->chat_name,
+					.pixels_placed = placed,
+					.colour = colour_hash(user->chat_name)
+				};
 			}
 		}
 	}
 
+	hmfree(placer_counts);
 	struct top_placers result = { .placers = top_placers, .size = max_count };
 	return result;
 }

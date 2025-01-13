@@ -30,9 +30,10 @@ export class MainControlView extends LitElement {
 					<span>${this.connected ? "Yes" : "No"}</span>
 				</p>
 				<dialog id="formDialog">
-					<form id="configForm" title="Config">
-						<fieldset>
-							<legend>Config</legend>
+					<h2>Start timelapse generator:</h2>
+					<form id="configForm">
+						<fieldset title="Config">
+							<legend>Generator config</legend>
 							<label title="repo_url">
 								<span>Repo URL: </span>
 								<input type="text" name="repoUrl" value="https://github.com/rplacetk/canvas1">
@@ -47,7 +48,7 @@ export class MainControlView extends LitElement {
 							</label>
 							<label title="commit_hashes_file_name">
 								<span>Commit hashes file name: </span>
-								<input type="text" name="commitHashesFileName" value="commit_hashes.txt">
+								<input type="text" name="commitHashesFileName" value="">
 							</label>
 							<label title="max_top_placers">
 								<span>Max top placers:</span>
@@ -65,7 +66,7 @@ export class MainControlView extends LitElement {
 						</p>
 						<div>
 							<button @click=${this.handleStartPressed}>Start</button>
-							<button @click=${this.handleShutdownPressed}>Shutdown</button>
+							<button @click=${this.handleStopPressed}>Stop</button>
 							<button @click=${this.handleDisconnectPressed}>Disconnect</button>
 						</div>`
 					: html``
@@ -122,16 +123,14 @@ export class MainControlView extends LitElement {
 	handleStartPressed(e:Event) {
 		e.preventDefault()
 		const formDialog:HTMLDialogElement = this.querySelector("#formDialog")!;
-		formDialog.showModal()
-
-
+		formDialog.showModal();
 	}
 
 	handleStartSubmitPressed(e:Event) {
-		e.preventDefault()
+		e.preventDefault();
 		const configForm:HTMLFormElement = this.querySelector("#configForm")!;
 		//@ts-ignore
-		const { repoUrl, downloadBaseUrl, gameServerBaseUrl, commitHashesFileName, maxTopPlacers } = configForm.elements
+		const { repoUrl, downloadBaseUrl, gameServerBaseUrl, commitHashesFileName, maxTopPlacers } = configForm.elements;
 		const packet = new BufWriter()
 		packet.u8(ControlPacket.Start);
 		packet.str(repoUrl.value);
@@ -140,10 +139,13 @@ export class MainControlView extends LitElement {
 		packet.str(commitHashesFileName.value);
 		packet.u32(maxTopPlacers.value);
 		const controlPanel:ControlPanel = this.parentElement as ControlPanel;
-		controlPanel.websocket?.send(packet);		
+		controlPanel.websocket?.send(packet);
 	}
 
-	handleShutdownPressed() {
-
+	handleStopPressed() {
+		const packet = new BufWriter()
+		packet.u8(ControlPacket.Stop)
+		const controlPanel:ControlPanel = this.parentElement as ControlPanel;
+		controlPanel.websocket?.send(packet);
 	}
 }

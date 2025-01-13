@@ -18,10 +18,11 @@
 - .NET SDK
 
 ### Dependencies:
-1. This project depends on [libfcall](https://www.gnu.org/software/libffcall/), which is a nightmare to build,
+1. This project depends on [libffcall](https://www.gnu.org/software/libffcall/), which is a nightmare to build,
   so it's sources have not been included as a submodule in this project. It is reccomended you use the
   provided ffcall library for your distro for ffcall to work correctly. For example,
   [ffcall](https://archlinux.org/packages/extra/x86_64/ffcall/) on arch.
+2. This project depends on [readline](https://www.gnu.org/software/bash/manual/html_node/Readline-Interaction.html)
 
 ### Build and Run
 

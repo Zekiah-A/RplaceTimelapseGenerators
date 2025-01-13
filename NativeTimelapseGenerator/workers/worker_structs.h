@@ -5,7 +5,7 @@
 #include "worker_enums.h"
 
 // Cross-worker structs
-typedef union {
+typedef union colour {
 	uint8_t channels[4];
 	struct {
 		uint8_t r;
@@ -13,6 +13,7 @@ typedef union {
 		uint8_t b;
 		uint8_t a;
 	};
+	uint32_t value;
 } Colour;
 
 typedef struct user {
@@ -29,6 +30,7 @@ typedef struct placer {
 	// Can be null
 	const char* chat_name;
 	uint32_t pixels_placed;
+	Colour colour;
 } Placer;
 
 

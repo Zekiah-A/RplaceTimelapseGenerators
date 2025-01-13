@@ -2,6 +2,7 @@
 #include <stdbool.h>
 #include <string.h>
 
+#include "console.h"
 #include "memory_utils.h"
 
 void init_stack(Stack* stack, size_t item_size, int max_size)
@@ -19,7 +20,7 @@ int push_stack(Stack* stack, void* item)
 	pthread_mutex_lock(&stack->mutex);
 
 	if (stack->top >= stack->max_size - 1) {
-		fprintf(stderr, "Error - stack overflow occurred\n");
+		log_message(LOG_ERROR, "Stack overflow occurred\n");
 		pthread_mutex_unlock(&stack->mutex);
 		return 1;
 	}

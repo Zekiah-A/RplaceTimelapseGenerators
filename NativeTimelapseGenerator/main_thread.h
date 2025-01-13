@@ -5,6 +5,9 @@
 #include <time.h>
 #include <stdbool.h>
 #include <avcall.h>
+#include <stdio.h>
+#include <readline/readline.h>
+#include <readline/history.h>
 
 #include "workers/download_worker.h"
 #include "workers/render_worker.h"
@@ -49,9 +52,9 @@ typedef struct worker_info {
 	const Config* config;
 	union
 	{
-		const DownloadWorkerShared* download_worker_shared;
-		const RenderWorkerShared* render_worker_shared;
-		const SaveWorkerShared* save_worker_shared;
+		DownloadWorkerShared* download_worker_shared;
+		RenderWorkerShared* render_worker_shared;
+		SaveWorkerShared* save_worker_shared;
 	};
 } WorkerInfo;
 
