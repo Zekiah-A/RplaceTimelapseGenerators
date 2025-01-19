@@ -18,11 +18,12 @@
 - .NET SDK
 
 ### Dependencies:
-1. This project depends on [libffcall](https://www.gnu.org/software/libffcall/), which is a nightmare to build,
-  so it's sources have not been included as a submodule in this project. It is reccomended you use the
-  provided ffcall library for your distro for ffcall to work correctly. For example,
+1. This project depends on [libffcall](https://www.gnu.org/software/libffcall/). For example,
   [ffcall](https://archlinux.org/packages/extra/x86_64/ffcall/) on arch.
 2. This project depends on [readline](https://www.gnu.org/software/bash/manual/html_node/Readline-Interaction.html)
+3. This project depends on [libpng](http://www.libpng.org/pub/png/libpng.html)
+4. This project depends on [cairo](https://www.cairographics.org/) 
+5. This project depends on [openssl](https://openssl-library.org/)
 
 ### Build and Run
 

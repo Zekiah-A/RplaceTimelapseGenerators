@@ -38,6 +38,7 @@ set(SOURCE_FILES
 	${CMAKE_SOURCE_DIR}/workers/save_worker.c
 	${CMAKE_SOURCE_DIR}/workers/render_worker.c
 	${CMAKE_SOURCE_DIR}/console.c
+	${CMAKE_SOURCE_DIR}/database.c
 )
 
 # Add executable

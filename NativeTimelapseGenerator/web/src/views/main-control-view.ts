@@ -36,23 +36,23 @@ export class MainControlView extends LitElement {
 							<legend>Generator config</legend>
 							<label title="repo_url">
 								<span>Repo URL: </span>
-								<input type="text" name="repoUrl" value="https://github.com/rplacetk/canvas1">
+								<input type="text" name="repoUrl" class="field-input" value="https://github.com/rplacetk/canvas1">
 							</label>
 							<label title="download_base_url">
 								<span>Download base URL: </span>
-								<input type="text" name="downloadBaseUrl" value="https://raw.githubusercontent.com/rplacetk/canvas1">
+								<input type="text" name="downloadBaseUrl" class="field-input" value="https://raw.githubusercontent.com/rplacetk/canvas1">
 							</label>
 							<label title="game_server_base_url">
 								<span>Game server base URL: </span>
-								<input type="text" name="gameServerBaseUrl" value="https://server.rplace.live">
+								<input type="text" name="gameServerBaseUrl" class="field-input" value="https://server.rplace.live">
 							</label>
 							<label title="commit_hashes_file_name">
 								<span>Commit hashes file name: </span>
-								<input type="text" name="commitHashesFileName" value="">
+								<input type="text" name="commitHashesFileName" class="field-input" value="">
 							</label>
 							<label title="max_top_placers">
 								<span>Max top placers:</span>
-								<input type="number" name="maxTopPlacers" value="10">
+								<input type="number" name="maxTopPlacers" class="field-input" value="10">
 							</label>
 						</fieldset>
 						<button type="submit" @click=${this.handleStartSubmitPressed}>Start</button>
@@ -131,20 +131,24 @@ export class MainControlView extends LitElement {
 		const configForm:HTMLFormElement = this.querySelector("#configForm")!;
 		//@ts-ignore
 		const { repoUrl, downloadBaseUrl, gameServerBaseUrl, commitHashesFileName, maxTopPlacers } = configForm.elements;
-		const packet = new BufWriter()
-		packet.u8(ControlPacket.Start);
-		packet.str(repoUrl.value);
-		packet.str(downloadBaseUrl.value);
-		packet.str(gameServerBaseUrl.value);
-		packet.str(commitHashesFileName.value);
-		packet.u32(maxTopPlacers.value);
+		const writer = new BufWriter();
+		writer.u8(ControlPacket.Start);
+		writer.str(repoUrl.value);
+		writer.str(downloadBaseUrl.value);
+		writer.str(gameServerBaseUrl.value);
+		writer.str(commitHashesFileName.value);
+		writer.u32(maxTopPlacers.value);
+		const packet = writer.toUint8Array();
+
 		const controlPanel:ControlPanel = this.parentElement as ControlPanel;
 		controlPanel.websocket?.send(packet);
 	}
 
 	handleStopPressed() {
-		const packet = new BufWriter()
-		packet.u8(ControlPacket.Stop)
+		const writer = new BufWriter();
+		writer.u8(ControlPacket.Stop);
+		const packet = writer.toUint8Array();
+
 		const controlPanel:ControlPanel = this.parentElement as ControlPanel;
 		controlPanel.websocket?.send(packet);
 	}

@@ -1,6 +1,7 @@
 #include <pthread.h>
 #include <stdbool.h>
 #include <string.h>
+#include <avcall.h>
 
 #include "console.h"
 #include "memory_utils.h"
@@ -54,4 +55,76 @@ void free_stack(Stack* stack)
 {
 	free(stack->items);
 	pthread_mutex_destroy(&stack->mutex);
+}
+
+void init_work_queue(WorkQueue* queue, size_t capacity)
+{
+	queue->work = (av_alist*) malloc(sizeof(av_alist) * capacity);
+	if (!queue->work) {
+		stop_console();
+		log_message(LOG_ERROR, "Failed to initialise main thread work queue\n");
+		exit(EXIT_FAILURE);
+	}
+
+	queue->capacity = capacity;
+	queue->front = 0;
+	queue->rear = 0;
+	queue->replenished = false;
+	pthread_mutex_init(&queue->mutex, NULL);
+}
+
+// Dequeue a message
+void push_work_queue(WorkQueue* queue, av_alist work)
+{
+	if (!queue) {
+		init_work_queue(queue, DEFAULT_WORK_QUEUE_SIZE);
+	}
+	pthread_mutex_lock(&queue->mutex);
+
+	// Check for queue overflow
+	if ((queue->rear + 1) % queue->capacity == queue->front) {
+		stop_console();
+		log_message(LOG_ERROR, "Error - Work queue overflow.\n");
+		pthread_mutex_unlock(&queue->mutex);
+		exit(EXIT_FAILURE);
+	}
+
+	// Enqueue the message
+	queue->work[queue->rear] = work;
+	queue->rear = (queue->rear + 1) % queue->capacity;
+	queue->replenished = true;
+
+	pthread_mutex_unlock(&queue->mutex);
+}
+
+av_alist pop_work_queue(WorkQueue* queue)
+{
+	pthread_mutex_lock(&queue->mutex);
+
+	// Check underflow
+	if (queue->front == queue->rear) {
+		log_message(LOG_ERROR, "Error - Work queue underflow.\n");
+		pthread_mutex_unlock(&queue->mutex);
+		exit(EXIT_FAILURE);
+	}
+
+	// Dequeue the message
+	av_alist message = queue->work[queue->front];
+	queue->front = (queue->front + 1) % queue->capacity;
+	if (queue->front == queue->rear) {
+		queue->replenished = false;
+	}
+
+	pthread_mutex_unlock(&queue->mutex);
+	return message;
+}
+
+void free_work_queue(WorkQueue* work_queue)
+{
+	if (!work_queue) {
+		return;
+	}
+
+	free(work_queue->work);
+	pthread_mutex_destroy(&work_queue->mutex);
 }

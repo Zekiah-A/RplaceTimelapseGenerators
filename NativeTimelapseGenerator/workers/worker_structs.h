@@ -33,6 +33,12 @@ typedef struct placer {
 	Colour colour;
 } Placer;
 
+typedef struct canvas_metadata {
+	int width;
+	int height;
+	Colour* palette;
+	int palette_size;
+} CanvasMetadata;
 
 // Pipeline worker structs
 typedef struct error {

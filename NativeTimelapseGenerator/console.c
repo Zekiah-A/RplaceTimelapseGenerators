@@ -1,4 +1,5 @@
 #include "lib/libnanobuf/buf_writer.h"
+#include "lib/libnanobuf/nanobuf_defs.h"
 #include <linux/limits.h>
 #include <pthread.h>
 #include <stdarg.h>
@@ -12,8 +13,8 @@
 #include <openssl/evp.h>
 #include <dirent.h>
 #include <sys/stat.h>
-#include <avcall.h>
 #include <signal.h>
+#include <avcall.h>
 
 #include "lib/libdill/libdill.h"
 #include "lib/libnanobuf/nanobuf.h"
@@ -33,10 +34,10 @@ typedef enum event_packet:uint8_t {
 } EventPacket;
 
 typedef enum control_packet:uint8_t {
-	CONTROL_PACKET_START = 0,
-	CONTROL_PACKET_STOP = 1,
-	CONTROL_PACKET_ADD_WORKER = 2,
-	CONTROL_PACKET_REMOVE_WORKER = 3
+	CONTROL_PACKET_START = 16,
+	CONTROL_PACKET_STOP = 17,
+	CONTROL_PACKET_ADD_WORKER = 18,
+	CONTROL_PACKET_REMOVE_WORKER = 19
 } ControlPacket;
 
 typedef struct log_message {
@@ -46,18 +47,23 @@ typedef struct log_message {
 } LogMessage;
 LogMessage* log_messages = NULL;
 
+pthread_t repl_thread_id;
+pthread_t socket_thread_id;
+volatile sig_atomic_t repl_keep_running = true;
+bool socket_keep_running = true;
+
 // Called by UI therad, must pass back to main thread
 void ui_start_generation(Config config)
 {
 	av_alist start_alist;
-	av_start_struct(start_alist, &start_generation, Config, /*splittable*/0, &config);
+	av_start_void(start_alist, &start_generation);
+	av_struct(start_alist, Config, config); 
 	main_thread_post(start_alist);
 }
 
 // Called by UI thread, must pass back to main thread
 void ui_stop_generation()
 {
-	log_message(LOG_INFO, "Generator CLI application halted. Application will terminate immediately");
 	av_alist stop_alist;
 	av_start_void(stop_alist, &stop_generation); 
 	main_thread_post(stop_alist);
@@ -83,6 +89,18 @@ void ui_remove_worker(int worker_type, int remove)
 	}
 }
 
+void ui_exit()
+{
+	log_message(LOG_INFO, "NativeTimelapseGenerator exiting...");
+
+	ui_stop_generation();
+	// HACK: There is no functionality yet to await a main thread post so we do this 
+	usleep(500000);
+
+	stop_console();
+	stop_global();
+}
+
 int str_ends_with(const char* str, const char* suffix)
 {
 	if (!str || !suffix) {
@@ -99,16 +117,39 @@ int str_ends_with(const char* str, const char* suffix)
 
 coroutine void ws_send_all_packet(BufWriter* packet)
 {
+	if (!socket_keep_running) {
+		return;
+	}
+
 	uint8_t* data = packet->start;
 	size_t packet_size = bw_size(packet);
-	for (int i=0; i < arrlen(event_sockets); ++i) {
-		msend(event_sockets[i], data, packet_size, -1);
+	time_t deadline = now() + 5000;
+
+	int* current_sockets = NULL;
+	arrsetcap(current_sockets, arrlen(event_sockets));
+	for (int i = 0; i < arrlen(event_sockets); ++i) {
+		arrput(current_sockets, event_sockets[i]);
 	}
+
+	for (int i = 0; i < arrlen(current_sockets); ++i) {
+		int sock = current_sockets[i];
+		if (sock > 0) {
+			int rc = msend(sock, data, packet_size, deadline);
+			if (rc < 0) {
+				continue;
+			}
+		}
+	}
+	arrfree(current_sockets);
 }
 
 coroutine void ws_send_packet(int socket, BufWriter* packet)
 {
-	msend(socket, packet->start, bw_size(packet), -1);
+	if (!socket_keep_running) {
+		return;
+	}
+	time_t deadline = now() + 5000;
+	msend(socket, packet->start, bw_size(packet), deadline);
 }
 
 void write_worker_info(BufWriter* packet, WorkerInfo* worker)
@@ -129,30 +170,52 @@ void write_worker_infos(BufWriter* packet, WorkerType type)
 	}
 }
 
+coroutine void ws_disconnect(int socket);
+
 coroutine void ws_listen(int socket)
 {
 	char buf[1024];
+	bool connection_alive = true;
+	int consecutive_errors = 0;
+	const int max_consecutive_errors = 3;
 
-	while (1) {
+	while (socket_keep_running  && connection_alive) {
+		memset(buf, 0, sizeof(buf));
+
 		// Receive a WebSocket packet
-		size_t size = mrecv(socket, buf, sizeof(buf), -1);
+		int64_t deadline = now() + 5000; 
+		size_t size = mrecv(socket, buf, sizeof(buf), deadline);
 
 		// Handle disconnection or errors
 		if (size < 0) {
-			if (errno == EPIPE) {
-				log_message(LOG_INFO, "WebSocket client disconnected");
+			consecutive_errors++;
+
+			// Handle timeout specially
+			if (errno == ETIMEDOUT) {
+				if (consecutive_errors >= max_consecutive_errors) {
+					log_message(LOG_INFO, "Connection appears dead after multiple timeouts");
+					connection_alive = false;
+				}
+				continue;
+			}			
+			if (errno == ECONNRESET || errno == EPIPE || errno == ECONNABORTED || errno == ENOTCONN) {
+				log_message(LOG_INFO, "WebSocket disconnected (errno: %d - %s)", errno, strerror(errno));
+				connection_alive = false;
 				break;
 			}
-			else {
-				log_message(LOG_ERROR, "Error receiving WebSocket packet: %d - %s", errno, strerror(errno));
+			log_message(LOG_ERROR, "Socket error: %d - %s", errno, strerror(errno));
+			if (consecutive_errors >= max_consecutive_errors) {
+				log_message(LOG_ERROR, "Too many consecutive errors, closing connection");
+				connection_alive = false;
 			}
-			break;
+			continue;
 		}
+		// Ignore empty packets
 		if (size == 0) {
-			log_message(LOG_WARNING, "Received an empty WebSocket packet");
 			continue;
 		}
 
+		consecutive_errors = 0;
 		BufReader* packet = br_from_ptr(&buf, size, NULL);
 		ControlPacket type = br_u8(packet);
 		switch (type) {
@@ -160,14 +223,14 @@ coroutine void ws_listen(int socket)
 				Config config = { 0 };
 				// Nullable
 				char* repo_url_str = nb_to_cstr(br_str(packet));
-				config.repo_url = strlen(repo_url_str) >  0 ? repo_url_str : NULL;
+				config.repo_url =  (repo_url_str && strlen(repo_url_str) > 0) >  0 ? repo_url_str : NULL;
 				
 				config.download_base_url = nb_to_cstr(br_str(packet));
 				config.game_server_base_url = nb_to_cstr(br_str(packet));
 				
 				// Nullable
 				char* commit_hashes_str = nb_to_cstr(br_str(packet));
-				config.commit_hashes_file_name = strlen(commit_hashes_str) > 0 ? commit_hashes_str : NULL;
+				config.commit_hashes_file_name = (commit_hashes_str && strlen(commit_hashes_str) > 0) ? commit_hashes_str : NULL;
 				
 				config.max_top_placers = br_u32(packet);
 				ui_start_generation(config);
@@ -191,24 +254,14 @@ coroutine void ws_listen(int socket)
 			}
 			default: {
 				log_message(LOG_WARNING, "Unknown control packet type: %d", type);
+				connection_alive = false;
 				break;
 			}
 		}
 	}
 
 	// Clean up when the connection is closed
-	int rc = ws_detach(socket, 0, NULL, 0, -1);
-	if (rc < 0) {
-		log_message(LOG_ERROR, "Error detaching WebSocket: %d - %s", errno, strerror(errno));
-	}
-	else {
-		log_message(LOG_INFO, "WebSocket detached successfully");
-	}
-
-	rc = hclose(socket);
-	if (rc < 0) {
-		log_message(LOG_ERROR, "Error closing WebSocket: %d - %s", errno, strerror(errno));
-	}
+	ws_disconnect(socket);
 }
 
 coroutine void ws_connect(int socket)
@@ -249,16 +302,27 @@ coroutine void ws_connect(int socket)
 
 coroutine void ws_disconnect(int socket)
 {
-	// Close WebSocket
-	socket = ws_detach(socket, 1000, "Normal Closure", 15, -1);
-	tcp_close(socket, -1);
-
+	// Remove from event sockets
 	for (int i = 0; i < arrlen(event_sockets); i++) {
 		if (event_sockets[i] == socket) {
 			arrdel(event_sockets, i);
 			break;
 		}
 	}
+
+	// Close WebSocket
+	socket = ws_detach(socket, 1000, "Normal Closure", 15, -1);
+	if (socket < 0 && errno != ECONNRESET) {
+		log_message(LOG_ERROR, "Error detaching WebSocket: %d - %s", errno, strerror(errno));
+		return;
+	}
+	int rc = tcp_close(socket, -1);
+	if (rc < 0) {
+		log_message(LOG_ERROR, "Error closing TCP connection: %d - %s", errno, strerror(errno));
+		return;
+	}
+
+	log_message(LOG_INFO, "WebSocket detached successfully");
 }
 
 void perform_ws_upgrade(int socket, char sec_websocket_key[128])
@@ -462,8 +526,8 @@ void parse_command(char* input)
 	if (strcmp(command, "start_generation") == 0) {
 		char* repo_url = strtok(NULL, " ");
 		char* download_base_url = strtok(NULL, " ");
-		char* commit_hashes_file_name = strtok(NULL, " ");
 		char* game_server_base_url = strtok(NULL, " ");
+		char* commit_hashes_file_name = strtok(NULL, " ");
 		char* max_top_placers_str = strtok(NULL, " ");
 		int max_top_placers = atoi(max_top_placers_str);
 		if (repo_url && download_base_url && commit_hashes_file_name && game_server_base_url) {
@@ -512,13 +576,9 @@ void parse_command(char* input)
 	}
 }
 
-volatile sig_atomic_t repl_keep_running = 1;
 void handle_sigint(int _)
 {
-	repl_keep_running = 0;
-	log_message(LOG_INFO, "Stopping NativeTimelapseGenerator");
-	stop_generation();
-	stop_console();
+	ui_exit();
 }
 
 void* start_repl(void* _)
@@ -541,8 +601,7 @@ void* start_repl(void* _)
 	return NULL;
 }
 
-bool socket_keep_running = true;
-void start_socket()
+void* start_socket(void* _)
 {
 	log_message(LOG_INFO, "Starting web frontend...");
 	struct ipaddr addr;
@@ -550,7 +609,7 @@ void start_socket()
 	int listener = tcp_listen(&addr, 10);
 	if (listener < 0) {
 		log_message(LOG_ERROR, "Failed to start socket: tcp_listen failed with error %d %s", errno, strerror(errno));
-		return;
+		return NULL;
 	}
 	log_message(LOG_INFO, "Started hosting web frontend at http://localhost:5555");
 
@@ -563,14 +622,13 @@ void start_socket()
 
 		handle_http(socket);
 	}
+	return NULL;
 }
 
-pthread_t repl_thread_id;
-void* start_console(void* _)
+void start_console()
 {
-	start_socket();
 	pthread_create(&repl_thread_id, NULL, start_repl, NULL);
-	return NULL;
+	pthread_create(&socket_thread_id, NULL, start_socket, NULL);
 }
 
 void stop_console()
@@ -583,6 +641,7 @@ void stop_console()
 	repl_keep_running = 0;
 	pthread_cancel(	repl_thread_id);
 	socket_keep_running = false;
+	pthread_cancel(socket_thread_id);
 }
 
 void log_message(LogType type, const char* format, ...)

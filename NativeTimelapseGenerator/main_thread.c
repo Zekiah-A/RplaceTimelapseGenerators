@@ -19,6 +19,7 @@
 #include "console.h"
 #include "main_thread.h"
 #include "memory_utils.h"
+#include "database.h"
 #define STB_DS_IMPLEMENTATION
 #include "lib/stb/stb_ds.h"
 
@@ -36,14 +37,6 @@ Stack download_stack;
 Stack render_stack;
 Stack save_stack;
 
-bool work_queue_replenished = false;
-pthread_mutex_t download_pop_mutex;
-bool download_stack_replenished = false;
-pthread_mutex_t render_pop_mutex;
-bool render_stack_replenished = false;
-pthread_mutex_t save_pop_mutex;
-bool save_stack_replenished = false;
-
 // WORKER THREADS
 #define DEFAULT_DOWNLOAD_WORKER_COUNT 4
 #define DEFAULT_RENDER_WORKER_COUNT 2
@@ -57,9 +50,6 @@ int completed_backups_since = 0;
 int completed_backups = 0;
 CanvasInfo* completed_canvas_info = NULL;
 
-// DATABASE
-sqlite3* _database = NULL;
-
 // CONFIG
 Config _config = { 0 };
 
@@ -70,62 +60,7 @@ DownloadWorkerShared _download_worker_shared = {
 RenderWorkerShared _render_worker_shared;
 SaveWorkerShared _save_worker_shared;
 
-// Private
-void init_work_queue(MainThreadQueue* queue, size_t capacity)
-{
-	queue->work = (av_alist*) malloc(sizeof(av_alist) * capacity);
-	if (!queue->work) {
-		stop_console();
-		log_message(LOG_ERROR, "Failed to initialise main thread work queue\n");
-		exit(EXIT_FAILURE);
-	}
 
-	queue->capacity = capacity;
-	queue->front = 0;
-	queue->rear = 0;
-	pthread_mutex_init(&queue->mutex, NULL);
-}
-
-// Dequeue a message
-void push_work_queue(MainThreadQueue* queue, av_alist work)
-{
-	pthread_mutex_lock(&queue->mutex);
-
-	// Check for queue overflow
-	if ((queue->rear + 1) % queue->capacity == queue->front) {
-		stop_console();
-		log_message(LOG_ERROR, "Error - Work queue overflow.\n");
-		pthread_mutex_unlock(&queue->mutex);
-		exit(EXIT_FAILURE);
-	}
-
-	// Enqueue the message
-	queue->work[queue->rear] = work;
-	queue->rear = (queue->rear + 1) % queue->capacity;
-	
-	work_queue_replenished = true;
-	pthread_mutex_unlock(&queue->mutex);
-}
-
-av_alist pop_work_queue(MainThreadQueue* queue)
-{
-	pthread_mutex_lock(&queue->mutex);
-
-	// Check underflow
-	if (queue->front == queue->rear) {
-		stop_console();
-		log_message(LOG_ERROR, "Error - Work queue underflow.\n");
-		pthread_mutex_unlock(&queue->mutex);
-		exit(EXIT_FAILURE);
-	}
-
-	// Dequeue the message
-	av_alist message = queue->work[queue->front];
-	queue->front = (queue->front + 1) % queue->capacity;
-	pthread_mutex_unlock(&queue->mutex);
-
-	return message;
-}
 
 int flines(FILE* file)
 {
@@ -247,14 +182,13 @@ WorkerInfo** get_workers(WorkerType type)
 }
 
 // Post queue
-#define MAIN_THREAD_QUEUE_SIZE 64
-MainThreadQueue work_queue = { };
+WorkQueue main_thread_work_queue;
 
 // Public
 // Enques work to work queue
 void main_thread_post(av_alist work)
 {
-	push_work_queue(&work_queue, work);
+	push_work_queue(&main_thread_work_queue, work);
 }
 
 // Called by main thread
@@ -291,11 +225,11 @@ void push_completed(SaveResult result)
 // Called by save worker on main thread, will forward collected info to UI thread
 void collect_backup_stats()
 {
-	time_t current_time = time(0);
-	float backups_per_second = ((float)(current_time - completed_backups_date)) / (float) completed_backups_since;
+	time_t now = time(0);
+	float backups_per_second = ((float)(now - completed_backups_date)) / (float) completed_backups_since;
 	update_backups_stats(completed_backups, backups_per_second, *completed_canvas_info);
 	completed_backups_since = 0;
-	completed_backups_date = current_time;
+	completed_backups_date = now;
 }
 
 // Forward declarations
@@ -331,8 +265,6 @@ RenderResult pop_save_stack(int worker_id)
 	}
 	return result;
 }
-
-#define MAX_HASHES_LINE_LEN 256
 
 // STRICT: Called by main thread
 void* read_commit_hashes(FILE* file)
@@ -578,74 +510,37 @@ const char* get_repo_commit_hashes(const char* repo_url)
 	return result;
 }
 
-int database_create_callback(void *data, int argc, char **argv, char **col_name)
+void make_save_dir(const char* name)
 {
-	for (int i = 0; i < argc; i++) {
-		log_message(LOG_INFO, LOG_HEADER"%s = %s\n", col_name[i], argv[i] ? argv[i] : "NULL");
+	if (mkdir(name, 0777) == -1) {
+		if (errno != EEXIST) {
+			stop_console();
+			log_message(LOG_ERROR, LOG_HEADER, "Error creating %s directory\n", name);
+			exit(EXIT_FAILURE);
+		}
 	}
-	return 0;
-}
-
-bool try_create_database(sqlite3* database)
-{
-	char* err_msg = NULL;
-	const char* schema_file = "schema.sql";
-
-	// Open database connection
-	int result = sqlite3_open("instance_caches.db", &database);
-	if (result != SQLITE_OK) {
-		log_message(LOG_ERROR, LOG_HEADER"Cannot open database: %s\n", sqlite3_errmsg(database));
-		return false;
-	}
-
-	// Read schema file
-	FILE* file = fopen(schema_file, "r");
-	if (!file) {
-		log_message(LOG_ERROR, LOG_HEADER"Cannot open schema file: %s\n", schema_file);
-		sqlite3_close(database);
-		return false;
-	}
-
-	// Get file size
-	fseek(file, 0, SEEK_END);
-	long file_size = ftell(file);
-	rewind(file);
-
-	// Allocate memory to hold the schema content
-	AUTOFREE char* sql = (char*)malloc(file_size + 1);
-	if (sql == NULL) {
-		log_message(LOG_ERROR, LOG_HEADER"Memory allocation failed\n");
-		fclose(file);
-		sqlite3_close(database);
-		return false;
-	}
-
-	// Read the schema from the file
-	fread(sql, 1, file_size, file);
-	sql[file_size] = '\0';
-	fclose(file);
-
-	// Execute schema SQL statements
-	result = sqlite3_exec(database, sql, database_create_callback, 0, &err_msg);
-	if (result != SQLITE_OK) {
-		log_message(LOG_ERROR, LOG_HEADER"Failed to create database: %s\n", err_msg);
-		sqlite3_free(err_msg);
-		sqlite3_close(database);
-		return false;
-	}
-
-	return true;
 }
 
 // Start all workers, initiate rendering backups
 void start_generation(Config config)
 {
+	// Start database work thread
+	start_database();
+
 	// Create database
-	if (!try_create_database(_database)) {
+	if (!try_create_database()) {
 		stop_console();
 		log_message(LOG_ERROR, LOG_HEADER"Error creating database\n");
 		exit(EXIT_FAILURE);
 	}
+
+	// Add new instance to DB
+	if (!add_instance_to_db(&config)) {
+		stop_console();
+		log_message(LOG_ERROR, LOG_HEADER"Error adding instance to database\n");
+		exit(EXIT_FAILURE);
+	}
+	int instance_id = get_last_instance_id();
 
 	// Create curl
 	_config = config;
@@ -666,12 +561,12 @@ void start_generation(Config config)
 	log_message(LOG_INFO, LOG_HEADER"Starting generation process...");
 
 	const char* log_file_name = config.commit_hashes_file_name;
-	if (config.repo_url) {
+	if (config.repo_url && strlen(config.repo_url) > 0) {
 		log_file_name = get_repo_commit_hashes(config.repo_url);
 	}
-	if (!log_file_name) {
-		stop_console();
+	if (!log_file_name || strlen(log_file_name) <= 0) {
 		log_message(LOG_ERROR, LOG_HEADER"Couldn't locate commit hashes file\n");
+		stop_console();
 		exit(EXIT_FAILURE);
 	}
 
@@ -688,21 +583,18 @@ void start_generation(Config config)
 	log_message(LOG_INFO, LOG_HEADER"Detected %d lines in %s", file_lines, log_file_name);
 	read_commit_hashes(file);
 
+	// Populate DB with commit hashes and associated metadata
+	if (!populate_commits_db(instance_id, file)) {
+		stop_console();
+		log_message(LOG_ERROR, LOG_HEADER"Error populating commits in database\n");
+		exit(EXIT_FAILURE);
+	}
+
 	// Create required directories
-	if (mkdir("backups", 0777) == -1) {
-		if (errno != EEXIST) {
-			stop_console();
-			log_message(LOG_ERROR, LOG_HEADER, "Error creating backups directory\n");
-			exit(EXIT_FAILURE);
-		}
-	}
-	if (mkdir("dates", 0777) == -1) {
-		if (errno != EEXIST) {
-			stop_console();
-			log_message(LOG_ERROR, LOG_HEADER, "Error creating dates directory\n");
-			exit(EXIT_FAILURE);
-		}
-	}
+	make_save_dir("backups");
+	make_save_dir("dates");
+	make_save_dir("top_placers");
+	make_save_dir("canvas_controls");
 
 	log_message(LOG_INFO, LOG_HEADER"Starting backup generation...");
 	for (int i = 0; i < DEFAULT_DOWNLOAD_WORKER_COUNT; i++) {
@@ -724,8 +616,7 @@ void start_generation(Config config)
 void stop_generation()
 {
 	// Cleanup work queue
-	free(work_queue.work);
-	pthread_mutex_destroy(&work_queue.mutex);
+	free_work_queue(&main_thread_work_queue);	
 
 	// Cleanup stacks
 	free_stack(&download_stack);
@@ -737,6 +628,11 @@ void stop_generation()
 	remove_all_workers(render_workers);
 	remove_all_workers(save_workers);
 
+	log_message(LOG_INFO, "Backup generation stopped.");
+}
+
+void stop_global()
+{
 	// Cleanup globals
 	curl_global_cleanup();
 	pthread_exit(NULL);
@@ -766,7 +662,7 @@ void start_main_thread(bool start, Config config)
 	signal(SIGSEGV, safe_segfault_exit);
 	completed_backups_date = time(0);
 
-	init_work_queue(&work_queue, MAIN_THREAD_QUEUE_SIZE);
+	init_work_queue(&main_thread_work_queue, DEFAULT_WORK_QUEUE_SIZE);
 	init_stack(&download_stack, sizeof(CanvasInfo), STACK_SIZE_MAX);
 	init_stack(&render_stack, sizeof(DownloadResult), STACK_SIZE_MAX);
 	init_stack(&save_stack, sizeof(RenderResult), STACK_SIZE_MAX);
@@ -777,12 +673,11 @@ void start_main_thread(bool start, Config config)
 	while (true) {
 		// Will wait for work to arrive via work queue, at which point
 		// main thread will pop & process work
-		while (!work_queue_replenished) {
+		while (!main_thread_work_queue.replenished) {
 			usleep(10000); // Wait for 10ms
 		}
-		work_queue_replenished = false;
 
-		av_alist work = pop_work_queue(&work_queue);
+		av_alist work = pop_work_queue(&main_thread_work_queue);
 		av_call(work);
 	}
 }

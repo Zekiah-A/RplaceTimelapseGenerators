@@ -13,6 +13,30 @@
 
 #define LOG_HEADER "[save worker %d] "
 
+// Reusable file-saving function
+static int save_file(const char* path, const uint8_t* data, size_t size, char** error_msg)
+{
+	FILE* file = fopen(path, "wb");
+	if (!file) {
+		if (error_msg) {
+			asprintf(error_msg, "Couldn't open file %s for writing", path);
+		}
+		return -1;
+	}
+
+	size_t written = fwrite(data, sizeof(uint8_t), size, file);
+	fclose(file);
+
+	if (written != size) {
+		if (error_msg) {
+			asprintf(error_msg, "Couldn't write the complete file %s", path);
+		}
+		return -1;
+	}
+
+	return 0;
+}
+
 SaveResult save(RenderResult render_result)
 {
 	SaveResult result = {
@@ -36,42 +60,34 @@ SaveResult save(RenderResult render_result)
 		return result;
 	}
 
+	// Save canvas image
 	AUTOFREE char* save_path = NULL;
 	asprintf(&save_path, "backups/%s.png", timestamp);
-
-	FILE* image_file_stream = fopen(save_path, "wb");
-	if (!image_file_stream) {
+	if (save_file(save_path, render_result.canvas_image, render_result.canvas_image_size, &result.error_msg) != 0) {
 		result.save_error = SAVE_ERROR_FAIL;
-		result.error_msg = strdup("Couldn't open file for writing");
 		return result;
 	}
-	size_t written = fwrite(render_result.canvas_image, sizeof(uint8_t), render_result.canvas_image_size, image_file_stream);
-	if (written != render_result.canvas_image_size) {
-		result.save_error = SAVE_ERROR_FAIL;
-		result.error_msg = strdup("Couldn't write the complete image");
-		return result;
-	}
-	fclose(image_file_stream);
 
 	// Save date image
-	AUTOFREE char* date_save_path = NULL;
-	asprintf(&date_save_path, "dates/%s.png", timestamp);
-
-	FILE* date_image_file_stream = fopen(date_save_path, "wb");
-	if (!date_image_file_stream) {
+	asprintf(&save_path, "dates/%s.png", timestamp);
+	if (save_file(save_path, render_result.date_image, render_result.date_image_size, &result.error_msg) != 0) {
 		result.save_error = SAVE_ERROR_FAIL;
-		result.error_msg = strdup("Couldn't open date image file for writing");
 		return result;
 	}
-	written = fwrite(render_result.date_image, sizeof(uint8_t), render_result.date_image_size, date_image_file_stream);
-	if (written != render_result.date_image_size) {
+
+	// Save top placers image
+	asprintf(&save_path, "top_placers/%s.png", timestamp);
+	if (save_file(save_path, render_result.top_placers_image, render_result.top_placers_image_size, &result.error_msg) != 0) {
 		result.save_error = SAVE_ERROR_FAIL;
-		result.error_msg = strdup("Couldn't write the complete date image");
 		return result;
 	}
-	fclose(date_image_file_stream);
 
-	// TODO: Save canvas control, top placer images
+	// Save canvas control image
+	asprintf(&save_path, "canvas_controls/%s.png", timestamp);
+	if (save_file(save_path, render_result.canvas_control_image, render_result.canvas_control_image_size, &result.error_msg) != 0) {
+		result.save_error = SAVE_ERROR_FAIL;
+		return result;
+	}
 
 	return result;
 }
@@ -88,7 +104,9 @@ void* start_save_worker(void* data)
 
 		SaveResult result = save(render_result);
 		if (result.save_error != SAVE_ERROR_NONE) {
-			log_message(LOG_ERROR, LOG_HEADER"Save worker %d failed with error %d message %s", worker_info->worker_id, worker_info->worker_id, result.save_error, result.error_msg);
+			log_message(LOG_ERROR, LOG_HEADER"Save worker %d failed with error %d message %s",
+						worker_info->worker_id, result.save_error, result.error_msg);
+			free(result.error_msg);
 			continue;
 		}
 

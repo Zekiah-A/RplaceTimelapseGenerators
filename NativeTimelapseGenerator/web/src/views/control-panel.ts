@@ -13,10 +13,10 @@ export enum EventPacket {
 };
 
 export enum ControlPacket {
-	Start = 0,
-	Stop = 1,
-	AddWorker = 2,
-	RemoveWorker = 3
+	Start = 16,
+	Stop = 17,
+	AddWorker = 18,
+	RemoveWorker = 19
 }
 
 @customElement("control-panel")

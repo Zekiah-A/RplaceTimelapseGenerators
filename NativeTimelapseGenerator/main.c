@@ -88,8 +88,7 @@ int main(int argc, char *argv[]) {
 	argp_parse(&argp, argc, argv, 0, 0, &arguments);
 	if (!arguments.cli_only) {
 		// Start console thread
-		pthread_t thread_id;
-		pthread_create(&thread_id, NULL, start_console, NULL);
+		start_console();
 	}
 
 	// Start main thread (will never return, and handle exiting itself)

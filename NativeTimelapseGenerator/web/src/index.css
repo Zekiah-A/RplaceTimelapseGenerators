@@ -79,13 +79,16 @@ fieldset {
 	border-radius: 2px;
 	background: #8080800d;
 	backdrop-filter: blur(8px);
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
 }
 legend {
 	font-size: 1.2em;
 	font-weight: bold;
 }
 label {
-	display: block;
+	display: flex;
 }
 input, button {
 	padding: 4px;
@@ -99,9 +102,11 @@ table {
 	width: 100%;
 	border-collapse: collapse;
 }
-th, td {
-	border: 1px solid #ccc;
+th {
 	padding: 0.5rem;
+}
+td {
+	border: 1px solid #ccc;
 	text-align: left;
 }
 th {
@@ -113,4 +118,8 @@ worker-manager {
 	border: 2px inset gray;
 	padding: 4px;
 	margin: 4px;
+}
+.field-input {
+	flex-grow: 1;
+	gap: 8px;
 }

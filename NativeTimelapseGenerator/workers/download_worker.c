@@ -17,13 +17,6 @@
 
 #define LOG_HEADER "[download worker %d] "
 
-struct canvas_metadata {
-	int width;
-	int height;
-	Colour* palette;
-	int palette_size;
-};
-
 struct top_placers {
 	Placer* placers;
 	size_t size;

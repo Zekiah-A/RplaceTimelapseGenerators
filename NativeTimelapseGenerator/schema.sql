@@ -1,15 +1,16 @@
 -- Stores rplace canvas instances that are being tracked by the timelapse generator.
 CREATE TABLE IF NOT EXISTS Instances (
 	id INTEGER PRIMARY KEY,
-	repo_id INTEGER NOT NULL,
 	repo_url TEXT NOT NULL,
-	game_server_url TEXT NOT NULL
+	game_server_url TEXT NOT NULL,
+	UNIQUE (repo_url, game_server_url)
 );
 
 -- Represents palettes of colours used in canvases.
 CREATE TABLE IF NOT EXISTS Palettes (
 	id INTEGER PRIMARY KEY, -- Unique identifier for the palette.
-	size INTEGER NOT NULL   -- Number of colours in the palette.
+	size INTEGER NOT NULL,  -- Number of colours in the palette.
+	hash TEXT UNIQUE        -- Hash of palette colours, used to differentiate palettes.
 );
 
 -- Links colours to a palette and specifies their order within the palette.

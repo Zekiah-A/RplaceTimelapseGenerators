@@ -11,5 +11,5 @@ typedef enum log_type {
 void update_worker_stats(WorkerType worker_type, int count);
 void update_backups_stats(int backups_total, float backups_per_second, CanvasInfo current_info);
 void log_message(LogType type, const char* format, ...);
-void* start_console(void*);
+void start_console();
 void stop_console();

@@ -14,24 +14,18 @@
 #include "workers/save_worker.h"
 #include "workers/worker_structs.h"
 
+#define MAX_HASHES_LINE_LEN 256
+
 typedef enum worker_status:uint8_t {
 	WORKER_STATUS_WAITING = 0,
 	WORKER_STATUS_ACTIVE = 1
 } WorkerStatus;
 
-typedef struct main_thread_queue {
-	av_alist* work;
-	size_t capacity;
-	size_t front;
-	size_t rear;
-	pthread_mutex_t mutex;
-} MainThreadQueue;
-
 typedef struct config {
 	const char* repo_url;
 	const char* download_base_url;
-	const char* commit_hashes_file_name;
 	const char* game_server_base_url;
+	const char* commit_hashes_file_name;
 	int max_top_placers;
 } Config;
 
@@ -73,6 +67,8 @@ void start_generation(Config config);
 const char* clone_and_log_repo(const char* repo_url);
 // STRICT: Call on main thread only - POST
 void stop_generation();
+// STRICT: Call on main thread only - POST
+void stop_global();
 // STRICT: Call on main thread only - POST
 void add_download_worker();
 // STRICT: Call on main thread only - POST
