@@ -535,12 +535,13 @@ void start_generation(Config config)
 	}
 
 	// Add new instance to DB
-	if (!add_instance_to_db(&config)) {
+	int instance_id = find_existing_instance(&config);;
+	if (instance_id == -1 && !add_instance_to_db(&config)) {
 		stop_console();
 		log_message(LOG_ERROR, LOG_HEADER"Error adding instance to database\n");
 		exit(EXIT_FAILURE);
 	}
-	int instance_id = get_last_instance_id();
+	instance_id = get_last_instance_id();
 
 	// Create curl
 	_config = config;

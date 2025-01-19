@@ -306,7 +306,7 @@ bool populate_commits_db(int instance_id, FILE* file)
 	return success;
 }
 
-int find_existing_instance(const char* repo_url, const char* game_server_url)
+int find_existing_instance(const Config* config)
 {
 	pthread_mutex_lock(&database_mutex);
 	int instance_id = -1;
@@ -321,8 +321,8 @@ int find_existing_instance(const char* repo_url, const char* game_server_url)
 		return -1;
 	}
 
-	sqlite3_bind_text(stmt, 1, repo_url, -1, SQLITE_STATIC);
-	sqlite3_bind_text(stmt, 2, game_server_url, -1, SQLITE_STATIC);
+	sqlite3_bind_text(stmt, 1, config->repo_url, -1, SQLITE_STATIC);
+	sqlite3_bind_text(stmt, 2, config->game_server_base_url, -1, SQLITE_STATIC);
 	
 	if (sqlite3_step(stmt) == SQLITE_ROW) {
 		instance_id = sqlite3_column_int(stmt, 0);
@@ -336,7 +336,7 @@ int find_existing_instance(const char* repo_url, const char* game_server_url)
 bool add_instance_to_db(const Config* config)
 {
 	pthread_mutex_lock(&database_mutex);
-	if (find_existing_instance(config->repo_url, config->game_server_base_url)) {
+	if (find_existing_instance(config)) {
 		log_message(LOG_ERROR, LOG_HEADER"Failed to insert instance: Matching instance already present in DB");
 		return false;
 	}

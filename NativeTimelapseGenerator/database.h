@@ -8,7 +8,7 @@ bool add_commit_to_db(int instance_id, const char* hash, time_t date);
 // BETTER: Call on database thread for non-blocking
 bool populate_commits_db(int instance_id, FILE* file);
 // BETTER: Call on database thread for non-blocking
-int find_existing_instance(const char* repo_url, const char* game_server_url);
+int find_existing_instance(const Config* config);
 // BETTER: Call on database thread for non-blocking
 bool add_instance_to_db(const Config* config);
 // BETTER: Call on database thread for non-blocking
