@@ -37,58 +37,64 @@ static int save_file(const char* path, const uint8_t* data, size_t size, char** 
 	return 0;
 }
 
-SaveResult save(RenderResult render_result)
+SaveResult save(SaveJob job)
 {
-	SaveResult result = {
-		.canvas_info = render_result.canvas_info,
-		.download_result = render_result.download_result,
-		.render_result = render_result,
-		.save_error = SAVE_ERROR_NONE,
-		.error_msg = NULL
-	};
-
 	char timestamp[64];
 	struct tm timeinfo;
-	if (gmtime_r(&render_result.canvas_info.date, &timeinfo) == NULL) {
-		result.save_error = SAVE_ERROR_FAIL;
-		result.error_msg = strdup("Failed to convert time to GMT");
-		return result;
+	if (gmtime_r(&job.date, &timeinfo) == NULL) {
+		return (SaveResult) { .save_error = SAVE_ERROR_FAIL, .error_msg = strdup("Failed to convert time to GMT") };
 	}
 	if (strftime(timestamp, sizeof(timestamp), "%Y-%m-%dT%H:%M:%SZ", &timeinfo) == 0) {
-		result.save_error = SAVE_ERROR_FAIL;
-		result.error_msg = strdup("Failed to format timestamp");
-		return result;
+		return (SaveResult) { .save_error = SAVE_ERROR_FAIL, .error_msg = strdup("Failed to format timestamp") };
 	}
 
-	// Save canvas image
 	AUTOFREE char* save_path = NULL;
-	asprintf(&save_path, "backups/%s.png", timestamp);
-	if (save_file(save_path, render_result.canvas_image, render_result.canvas_image_size, &result.error_msg) != 0) {
-		result.save_error = SAVE_ERROR_FAIL;
-		return result;
+	switch (job.type) {
+		case SAVE_PLACERS_DOWNLOAD: {
+			asprintf(&save_path, "placer_downloads/%s_%s.png", timestamp, job.commit_hash);
+			break;
+		}
+		case SAVE_CANVAS_DOWNLOAD: {
+			asprintf(&save_path, "canvas_downloads/%s_%s.png", timestamp, job.commit_hash);
+			break;
+		}
+		case SAVE_CANVAS_RENDER: {
+			asprintf(&save_path, "canvas_renders/%s_%s.png", timestamp, job.commit_hash);
+			break;
+		}
+		case SAVE_DATE_RENDER: {
+			asprintf(&save_path, "date_renders/%s_%s.png", timestamp, job.commit_hash);
+			break;
+		}
+		case SAVE_TOP_PLACERS_RENDER: {
+			asprintf(&save_path, "top_placer_renders/%s_%s.png", timestamp, job.commit_hash);
+			break;
+		}
+		case SAVE_CANVAS_CONTROL_RENDER: {
+			asprintf(&save_path, "canvas_control_renders/%s_%s.png", timestamp, job.commit_hash);
+			break;
+		}
+		default: {
+			return (SaveResult) { .save_error = SAVE_FAIL_TYPE, .error_msg = strdup("Invalid save job type") };
+		}
 	}
 
-	// Save date image
-	asprintf(&save_path, "dates/%s.png", timestamp);
-	if (save_file(save_path, render_result.date_image, render_result.date_image_size, &result.error_msg) != 0) {
-		result.save_error = SAVE_ERROR_FAIL;
-		return result;
+	char* error_msg = NULL;
+	if (save_file(save_path, job.data, job.size, &error_msg) != 0) {
+		return (SaveResult) { .save_error = SAVE_ERROR_FAIL, .error_msg = error_msg };
 	}
 
-	// Save top placers image
-	asprintf(&save_path, "top_placers/%s.png", timestamp);
-	if (save_file(save_path, render_result.top_placers_image, render_result.top_placers_image_size, &result.error_msg) != 0) {
-		result.save_error = SAVE_ERROR_FAIL;
-		return result;
-	}
-
-	// Save canvas control image
-	asprintf(&save_path, "canvas_controls/%s.png", timestamp);
-	if (save_file(save_path, render_result.canvas_control_image, render_result.canvas_control_image_size, &result.error_msg) != 0) {
-		result.save_error = SAVE_ERROR_FAIL;
-		return result;
-	}
-
+	SaveResult result = {
+		// Inherited from WorkerResult
+		.save_error = SAVE_ERROR_NONE,
+		.error_msg = NULL,
+		// Members
+		.stats_job = {
+			.commit_hash = job.commit_hash,
+			.date = job.date,
+			.save_path = save_path
+		}
+	};
 	return result;
 }
 
@@ -96,16 +102,17 @@ void* start_save_worker(void* data)
 {
 	const WorkerInfo* worker_info = (const WorkerInfo*) data;
 
-	log_message(LOG_INFO, LOG_HEADER"Started save worker with thread id %d", worker_info->worker_id, worker_info->thread_id);
+	log_message(LOG_INFO, LOG_HEADER"Started save worker with thread id %d",
+		worker_info->worker_id, worker_info->thread_id);
 
 	// Enter save loop
 	while (true) {
-		RenderResult render_result = pop_save_stack(worker_info->worker_id);
+		SaveJob job = pop_save_stack(worker_info->worker_id);
 
-		SaveResult result = save(render_result);
+		SaveResult result = save(job);
 		if (result.save_error != SAVE_ERROR_NONE) {
 			log_message(LOG_ERROR, LOG_HEADER"Save worker %d failed with error %d message %s",
-						worker_info->worker_id, result.save_error, result.error_msg);
+				worker_info->worker_id, result.save_error, result.error_msg);
 			free(result.error_msg);
 			continue;
 		}

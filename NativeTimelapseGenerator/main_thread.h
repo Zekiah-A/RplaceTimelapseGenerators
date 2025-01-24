@@ -84,15 +84,19 @@ void remove_save_worker();
 // STRICT: Call on main thread only - POST
 void collect_backup_stats();
 
-// Better to call on main thread but shouldn't cause issues otherwise
+
+// BETTER: Call on main thread but shouldn't cause issues otherwise
 WorkerInfo** get_workers(WorkerType type);
 
+
 // Called by download worker
-CanvasInfo pop_download_stack(int worker_id);
-void push_render_stack(DownloadResult result);
+DownloadJob pop_download_stack(int worker_id);
+void push_render_stack(RenderJob job);
+
 // Called by render worker
-DownloadResult pop_render_stack(int worker_id);
-void push_save_stack(RenderResult result);
+RenderJob pop_render_stack(int worker_id);
+void push_save_stack(SaveJob job);
+
 // Called by save worker
-RenderResult pop_save_stack(int worker_id);
-void push_completed(SaveResult result);
+SaveJob pop_save_stack(int worker_id);
+void push_completed(SaveResult job);

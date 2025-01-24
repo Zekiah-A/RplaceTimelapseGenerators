@@ -22,6 +22,69 @@ static pthread_t database_thread_id;
 // Needed until Work functions are made awaitable
 static pthread_mutex_t database_mutex;
 
+bool add_save_to_db(int commit_id, SaveJobType type, const char* save_path)
+{
+	pthread_mutex_lock(&database_mutex);
+
+	sqlite3_stmt* stmt;
+	const char* sql = "INSERT INTO Saves (commit_id, start_date, finish_date, type, save_path) VALUES (?, ?, ?, ?, ?);";
+	int rc;
+
+	time_t current_time = time(NULL);
+
+	rc = sqlite3_prepare_v2(database, sql, -1, &stmt, 0);
+	if (rc != SQLITE_OK) {
+		log_message(LOG_ERROR, "[database] Failed to prepare save statement: %s\n", sqlite3_errmsg(database));
+		pthread_mutex_unlock(&database_mutex);
+		return false;
+	}
+
+	sqlite3_bind_int(stmt, 1, commit_id);
+	sqlite3_bind_int64(stmt, 2, current_time);  // start_date
+	sqlite3_bind_int64(stmt, 3, current_time);  // finish_date (same as start for now)
+	sqlite3_bind_int(stmt, 4, type);
+	sqlite3_bind_text(stmt, 5, save_path, -1, SQLITE_STATIC);
+
+	rc = sqlite3_step(stmt);
+	sqlite3_finalize(stmt);
+
+	pthread_mutex_unlock(&database_mutex);
+
+	if (rc != SQLITE_DONE) {
+		log_message(LOG_ERROR, "[database] Failed to insert save: %s\n", sqlite3_errmsg(database));
+		return false;
+	}
+
+	return true;
+}
+
+bool check_save_exists(int commit_id, SaveJobType type)
+{
+    pthread_mutex_lock(&database_mutex);
+    sqlite3_stmt* stmt;
+    int save_exists = 0;
+
+    const char* sql = "SELECT COUNT(*) FROM Saves WHERE commit_id = ? AND type = ?";
+    
+    if (sqlite3_prepare_v2(database, sql, -1, &stmt, 0) != SQLITE_OK) {
+        log_message(LOG_ERROR, "[database] Failed to prepare save check statement: %s\n", sqlite3_errmsg(database));
+        pthread_mutex_unlock(&database_mutex);
+        return false;
+    }
+
+    sqlite3_bind_int(stmt, 1, commit_id);
+    sqlite3_bind_int(stmt, 2, type);
+
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        save_exists = sqlite3_column_int(stmt, 0);
+    }
+
+    sqlite3_finalize(stmt);
+    pthread_mutex_unlock(&database_mutex);
+
+    return save_exists > 0;
+}
+
 void compute_palette_hash(const Colour* palette, int palette_size, char* out_hash)
 {
 	EVP_MD_CTX* ctx = EVP_MD_CTX_new();
@@ -147,9 +210,12 @@ int find_existing_canvas_metadata(CanvasMetadata metadata, int palette_id)
 // Main function to add canvas metadata to database
 bool add_canvas_metadata_to_db(CanvasMetadata metadata, int commit_id)
 {
+	pthread_mutex_lock(&database_mutex);
+
 	// Begin transaction
 	if (sqlite3_exec(database, "BEGIN TRANSACTION", NULL, NULL, NULL) != SQLITE_OK) {
 		log_message(LOG_ERROR, LOG_HEADER"Failed to begin transaction\n");
+		pthread_mutex_unlock(&database_mutex);
 		return false;
 	}
 
@@ -160,6 +226,7 @@ bool add_canvas_metadata_to_db(CanvasMetadata metadata, int commit_id)
 		if (palette_id == -1) {
 			log_message(LOG_ERROR, LOG_HEADER"Failed to create new palette\n");
 			sqlite3_exec(database, "ROLLBACK", NULL, NULL, NULL);
+			pthread_mutex_unlock(&database_mutex);
 			return false;
 		}
 	}
@@ -176,6 +243,7 @@ bool add_canvas_metadata_to_db(CanvasMetadata metadata, int commit_id)
 		
 		if (sqlite3_prepare_v2(database, sql, -1, &stmt, NULL) != SQLITE_OK) {
 			sqlite3_exec(database, "ROLLBACK", NULL, NULL, NULL);
+			pthread_mutex_unlock(&database_mutex);
 			return false;
 		}
 		
@@ -187,6 +255,7 @@ bool add_canvas_metadata_to_db(CanvasMetadata metadata, int commit_id)
 		if (sqlite3_step(stmt) != SQLITE_DONE) {
 			sqlite3_finalize(stmt);
 			sqlite3_exec(database, "ROLLBACK", NULL, NULL, NULL);
+			pthread_mutex_unlock(&database_mutex);
 			return false;
 		}
 		
@@ -202,6 +271,7 @@ bool add_canvas_metadata_to_db(CanvasMetadata metadata, int commit_id)
 	
 	if (sqlite3_prepare_v2(database, sql, -1, &stmt, NULL) != SQLITE_OK) {
 		sqlite3_exec(database, "ROLLBACK", NULL, NULL, NULL);
+		pthread_mutex_unlock(&database_mutex);
 		return false;
 	}
 	
@@ -226,27 +296,70 @@ bool add_canvas_metadata_to_db(CanvasMetadata metadata, int commit_id)
 		sqlite3_exec(database, "ROLLBACK", NULL, NULL, NULL);
 	}
 	
+	pthread_mutex_unlock(&database_mutex);
 	return success;
 }
 
-bool add_commit_to_db(int instance_id, const char* hash, time_t date)
+int find_existing_commit(const char* hash)
+{
+	sqlite3_stmt* exists_stmt = NULL;
+	const char* exists_sql = "SELECT id FROM COMMITS WHERE hash = ?;";
+
+	int rc = sqlite3_prepare_v2(database, exists_sql, -1, &exists_stmt, 0);
+	if (rc != SQLITE_OK) {
+		log_message(LOG_ERROR, LOG_HEADER "Failed to prepare statement: %s", sqlite3_errmsg(database));
+		return false;
+	}
+
+	sqlite3_bind_text(exists_stmt, 1, hash, -1, SQLITE_STATIC);
+	rc = sqlite3_step(exists_stmt);
+
+	if (rc == SQLITE_ROW) {
+		int commit_id = sqlite3_column_int(exists_stmt, 0);
+		sqlite3_finalize(exists_stmt);
+		return commit_id;
+	}
+	else if (rc == SQLITE_DONE) {
+		// Does not exist
+		sqlite3_finalize(exists_stmt);
+		return 0;
+	}
+	else {
+		// Error
+		log_message(LOG_ERROR, LOG_HEADER "Error executing statement: %s", sqlite3_errmsg(database));
+		sqlite3_finalize(exists_stmt);
+		return -1;
+	}
+}
+
+int add_commit_to_db(int instance_id, CommitInfo info)
 {
 	pthread_mutex_lock(&database_mutex);
 
-	const char* sql = "INSERT INTO Commits (instance_id, hash, date) VALUES (?, ?, ?);";
-	sqlite3_stmt* stmt;
+	int existing_commit_id = find_existing_commit(info.commit_hash);
+	if (existing_commit_id > 0) {
+		pthread_mutex_unlock(&database_mutex);
+		return existing_commit_id;
+	}
+	if (existing_commit_id == -1) {
+		pthread_mutex_unlock(&database_mutex);
+		return -1;
+	}
+
 	int rc;
+	const char* sql = "INSERT INTO Commits (instance_id, hash, date) VALUES (?, ?, ?);";
+	sqlite3_stmt* stmt  = NULL;
 
 	rc = sqlite3_prepare_v2(database, sql, -1, &stmt, 0);
 	if (rc != SQLITE_OK) {
 		log_message(LOG_ERROR, LOG_HEADER"Failed to prepare statement: %s\n", sqlite3_errmsg(database));
 		pthread_mutex_unlock(&database_mutex);
-		return false;
+		return -1;
 	}
 
 	sqlite3_bind_int(stmt, 1, instance_id);
-	sqlite3_bind_text(stmt, 2, hash, -1, SQLITE_STATIC);
-	sqlite3_bind_int64(stmt, 3, date);
+	sqlite3_bind_text(stmt, 2, info.commit_hash, -1, SQLITE_STATIC);
+	sqlite3_bind_int64(stmt, 3, info.date);
 
 	rc = sqlite3_step(stmt);
 	sqlite3_finalize(stmt);
@@ -254,56 +367,14 @@ bool add_commit_to_db(int instance_id, const char* hash, time_t date)
 	if (rc != SQLITE_DONE) {
 		log_message(LOG_ERROR, LOG_HEADER"Failed to insert commit: %s\n", sqlite3_errmsg(database));
 		pthread_mutex_unlock(&database_mutex);
-		return false;
+		return -1;
 	}
+
+	// Get the ID of the newly inserted commit
+	int commit_id = sqlite3_last_insert_rowid(database);
 
 	pthread_mutex_unlock(&database_mutex);
-	return true;
-}
-
-bool populate_commits_db(int instance_id, FILE* file)
-{
-	rewind(file); // Reset file pointer to beginning
-	
-	char line[MAX_HASHES_LINE_LEN];
-	char* result = NULL;
-	char* current_hash = NULL;
-	time_t current_date = 0;
-	bool success = true;
-
-	while ((result = fgets(line, MAX_HASHES_LINE_LEN, file)) != NULL) {
-		int result_len = strlen(result);
-		result[--result_len] = '\0';  // Remove newline
-
-		// Skip comments and empty lines
-		if (result_len <= 0 || result[0] == '#' || result[0] == '\n') {
-			continue;
-		}
-
-		if (strncmp(result, "Commit: ", 8) == 0) {
-			current_hash = strdup(result + 8);
-		}
-		else if (strncmp(result, "Date: ", 6) == 0) {
-			current_date = strtoll(result + 6, NULL, 10);
-			
-			if (current_hash && current_date) {
-				if (!add_commit_to_db(instance_id, current_hash, current_date)) {
-					log_message(LOG_ERROR, LOG_HEADER"Failed to add commit to database: %s at %ld\n", 
-						current_hash, current_date);
-					success = false;
-				}
-				free(current_hash);
-				current_hash = NULL;
-				current_date = 0;
-			}
-		}
-	}
-
-	if (current_hash) {
-		free(current_hash);
-	}
-
-	return success;
+	return commit_id;
 }
 
 int find_existing_instance(const Config* config)
@@ -336,11 +407,6 @@ int find_existing_instance(const Config* config)
 bool add_instance_to_db(const Config* config)
 {
 	pthread_mutex_lock(&database_mutex);
-	if (find_existing_instance(config)) {
-		log_message(LOG_ERROR, LOG_HEADER"Failed to insert instance: Matching instance already present in DB");
-		return false;
-	}
-
 	const char* sql = "INSERT INTO Instances (repo_url, game_server_url) VALUES (?, ?);";
 	sqlite3_stmt* stmt;
 	int rc;
@@ -391,7 +457,7 @@ bool try_create_database()
 	const char* schema_file = "schema.sql";
 
 	// Open database connection
-	int result = sqlite3_open("instance_caches.db", &database);
+	int result = sqlite3_open("instance_tracker.db", &database);
 	if (result != SQLITE_OK) {
 		log_message(LOG_ERROR, LOG_HEADER"Cannot open database: %s\n", sqlite3_errmsg(database));
 		pthread_mutex_unlock(&database_mutex);

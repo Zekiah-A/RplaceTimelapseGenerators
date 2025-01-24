@@ -32,7 +32,6 @@
 #define LOG_HEADER "[main thread] "
 
 // SHARED BETWEEN-WORKER MEMORY
-#define STACK_SIZE_MAX 256
 Stack download_stack;
 Stack render_stack;
 Stack save_stack;
@@ -48,7 +47,7 @@ WorkerInfo** save_workers = NULL; // stb array
 time_t completed_backups_date = 0;
 int completed_backups_since = 0;
 int completed_backups = 0;
-CanvasInfo* completed_canvas_info = NULL;
+CommitInfo* completed_canvas_info = NULL;
 
 // CONFIG
 Config _config = { 0 };
@@ -59,7 +58,6 @@ DownloadWorkerShared _download_worker_shared = {
 };
 RenderWorkerShared _render_worker_shared;
 SaveWorkerShared _save_worker_shared;
-
 
 
 int flines(FILE* file)
@@ -192,21 +190,21 @@ void main_thread_post(av_alist work)
 }
 
 // Called by main thread
-void push_download_stack(CanvasInfo result)
+void push_download_stack(DownloadJob job)
 {
-	push_stack(&download_stack, &result);
+	push_stack(&download_stack, &job);
 }
 
 // Called by download worker
-void push_render_stack(DownloadResult result)
+void push_render_stack(RenderJob job)
 {
-	push_stack(&render_stack, &result);
+	push_stack(&render_stack, &job);
 }
 
 // Called by render worker
-void push_save_stack(RenderResult result)
+void push_save_stack(SaveJob job)
 {
-	push_stack(&save_stack, &result);
+	push_stack(&save_stack, &job);
 }
 
 // Called by save worker
@@ -233,43 +231,106 @@ void collect_backup_stats()
 }
 
 // Forward declarations
-void* read_commit_hashes(FILE* file);
+void* read_commit_hashes(int instance_id, FILE* file);
 FILE* commit_hashes_stream = NULL;
 
 // Called by download worker
-CanvasInfo pop_download_stack(int worker_id)
+DownloadJob pop_download_stack(int worker_id)
 {
-	CanvasInfo result;
-	while (pop_stack(&download_stack, &result) == 1) {
+	DownloadJob result;
+	while (!pop_stack(&download_stack, &result)) {
 		usleep(10000); // Wait for 10ms
 	}
 	return result;
 }
 
 // Called by render worker
-DownloadResult pop_render_stack(int worker_id)
+RenderJob pop_render_stack(int worker_id)
 {
-	DownloadResult result;
-	while (pop_stack(&render_stack, &result) == 1) {
+	RenderJob result;
+	while (!pop_stack(&render_stack, &result)) {
 		usleep(10000); // Wait for 10ms
 	}
 	return result;
 }
 
 // Called by save worker
-RenderResult pop_save_stack(int worker_id)
+SaveJob pop_save_stack(int worker_id)
 {
-	RenderResult result;
-	while (pop_stack(&save_stack, &result) == 1) {
+	SaveJob result;
+	while (!pop_stack(&save_stack, &result)) {
 		usleep(10000); // Wait for 10ms
 	}
 	return result;
 }
 
 // STRICT: Called by main thread
-void* read_commit_hashes(FILE* file)
+void designate_jobs(int commit_id, CommitInfo info)
 {
-	CanvasInfo new_canvas_info = { 0 };
+	// Check canvas download and rendering
+	if (!check_save_exists(commit_id, SAVE_CANVAS_DOWNLOAD)) {
+		DownloadJob download_canvas_job = {
+			.commit_hash = info.commit_hash,
+			.date = info.date,
+			.type = DOWNLOAD_CANVAS
+		};
+		push_download_stack(download_canvas_job);
+	}
+	else if (!check_save_exists(commit_id, SAVE_CANVAS_RENDER)) {
+		// If canvas is downloaded but not rendered, render it
+		RenderJob render_canvas_job = {
+			.commit_hash = info.commit_hash,
+			.date = info.date,
+			.type = RENDER_CANVAS
+		};
+		push_render_stack(render_canvas_job);
+	}
+
+	// Check placers download and rendering
+	if (!check_save_exists(commit_id, SAVE_PLACERS_DOWNLOAD)) {
+		DownloadJob download_placers_job = {
+			.commit_hash = info.commit_hash,
+			.date = info.date,
+			.type = DOWNLOAD_PLACERS
+		};
+		push_download_stack(download_placers_job);
+	}
+	else {
+		// If placers are downloaded, check related renders
+		if (!check_save_exists(commit_id, SAVE_TOP_PLACERS_RENDER)) {
+			RenderJob top_placers_job = {
+				.commit_hash = info.commit_hash,
+				.date = info.date,
+				.type = RENDER_TOP_PLACERS
+			};
+			push_render_stack(top_placers_job);
+		}
+
+		if (!check_save_exists(commit_id, SAVE_CANVAS_CONTROL_RENDER)) {
+			RenderJob canvas_control_job = {
+				.commit_hash = info.commit_hash,
+				.date = info.date,
+				.type = RENDER_CANVAS_CONTROL
+			};
+			push_render_stack(canvas_control_job);
+		}
+	}
+
+	// Check date rendering
+	if (!check_save_exists(commit_id, SAVE_DATE_RENDER)) {
+		RenderJob render_date_job = {
+			.commit_hash = info.commit_hash,
+			.date = info.date,
+			.type = RENDER_DATE
+		};
+		push_render_stack(render_date_job);
+	}
+}
+
+// STRICT: Called by main thread
+void* read_commit_hashes(int instance_id, FILE* file)
+{
+	CommitInfo new_canvas_info = { 0 };
 	char line[MAX_HASHES_LINE_LEN];
 	char* result = NULL;
 	int line_index = 0;
@@ -297,11 +358,22 @@ void* read_commit_hashes(FILE* file)
 			time_t date_int = strtoll(date, NULL, 10);
 			new_canvas_info.date = date_int;
 
-			// Proceed
-			push_download_stack(new_canvas_info);
-			memset(&new_canvas_info, 0, sizeof(CanvasInfo)); // Wipe for reuse
+			int commit_id = add_commit_to_db(instance_id, new_canvas_info);
+			if (commit_id == -1) {
+				log_message(LOG_ERROR, LOG_HEADER"Failed to add commit to database: %s", 
+					new_canvas_info.commit_hash, new_canvas_info.commit_hash);
+			}
+			else {
+				// Push collected infos to the stacks to be processed
+				designate_jobs(commit_id, new_canvas_info);
+			}
 
-			if (download_stack.top >= STACK_SIZE_MAX - 1) {
+			// Wipe for reuse
+			memset(&new_canvas_info, 0, sizeof(CommitInfo));
+
+			// We can buffer more (stack will dynamically resize), but we will pause here to allow other 
+			// jobs a chance to run on main thread
+			if (download_stack.top > DEFAULT_STACK_SIZE) {
 				// We will come back later
 				log_message(LOG_INFO, LOG_HEADER"Bufferred %d commit records into download stack. Pausing until needs replenish", download_stack.top + 1);
 				break;
@@ -582,20 +654,15 @@ void start_generation(Config config)
 
 	long file_lines = flines(file);
 	log_message(LOG_INFO, LOG_HEADER"Detected %d lines in %s", file_lines, log_file_name);
-	read_commit_hashes(file);
-
-	// Populate DB with commit hashes and associated metadata
-	if (!populate_commits_db(instance_id, file)) {
-		stop_console();
-		log_message(LOG_ERROR, LOG_HEADER"Error populating commits in database\n");
-		exit(EXIT_FAILURE);
-	}
+	read_commit_hashes(instance_id, file);
 
 	// Create required directories
-	make_save_dir("backups");
-	make_save_dir("dates");
-	make_save_dir("top_placers");
-	make_save_dir("canvas_controls");
+	make_save_dir("canvas_downloads");
+	make_save_dir("placer_downloads");
+	make_save_dir("canvas_renders");
+	make_save_dir("date_renders");
+	make_save_dir("top_placer_renders");
+	make_save_dir("canvas_control_renders");
 
 	log_message(LOG_INFO, LOG_HEADER"Starting backup generation...");
 	for (int i = 0; i < DEFAULT_DOWNLOAD_WORKER_COUNT; i++) {
@@ -664,9 +731,9 @@ void start_main_thread(bool start, Config config)
 	completed_backups_date = time(0);
 
 	init_work_queue(&main_thread_work_queue, DEFAULT_WORK_QUEUE_SIZE);
-	init_stack(&download_stack, sizeof(CanvasInfo), STACK_SIZE_MAX);
-	init_stack(&render_stack, sizeof(DownloadResult), STACK_SIZE_MAX);
-	init_stack(&save_stack, sizeof(RenderResult), STACK_SIZE_MAX);
+	init_stack(&download_stack, sizeof(DownloadJob), DEFAULT_STACK_SIZE);
+	init_stack(&render_stack, sizeof(RenderJob), DEFAULT_STACK_SIZE);
+	init_stack(&save_stack, sizeof(SaveJob), DEFAULT_STACK_SIZE);
 
 	if (start) {
 		start_generation(config);

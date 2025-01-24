@@ -28,6 +28,8 @@ void (*add_funcs[3])() = { add_download_worker, add_render_worker, add_save_work
 void (*remove_funcs[3])() = { remove_download_worker, remove_render_worker, remove_save_worker };
 
 int* event_sockets = NULL;
+static pthread_mutex_t event_sockets_mutex = PTHREAD_MUTEX_INITIALIZER;
+
 typedef enum event_packet:uint8_t {
 	EVENT_PACKET_LOG_MESSAGE = 0,
 	EVENT_PACKET_WORKERS_INFO = 1
@@ -50,7 +52,7 @@ LogMessage* log_messages = NULL;
 pthread_t repl_thread_id;
 pthread_t socket_thread_id;
 volatile sig_atomic_t repl_keep_running = true;
-bool socket_keep_running = true;
+volatile bool socket_keep_running = true;
 
 // Called by UI therad, must pass back to main thread
 void ui_start_generation(Config config)
@@ -84,7 +86,7 @@ void ui_remove_worker(int worker_type, int remove)
 {
 	for (int i = 0; i < remove; i++) {
 		av_alist rm_worker_alist;
-		av_start_void(rm_worker_alist, &add_funcs[worker_type]); 
+		av_start_void(rm_worker_alist, &remove_funcs[worker_type]); 
 		main_thread_post(rm_worker_alist);
 	}
 }
@@ -126,10 +128,12 @@ coroutine void ws_send_all_packet(BufWriter* packet)
 	time_t deadline = now() + 5000;
 
 	int* current_sockets = NULL;
+	pthread_mutex_lock(&event_sockets_mutex);
 	arrsetcap(current_sockets, arrlen(event_sockets));
 	for (int i = 0; i < arrlen(event_sockets); ++i) {
 		arrput(current_sockets, event_sockets[i]);
 	}
+	pthread_mutex_unlock(&event_sockets_mutex);
 
 	for (int i = 0; i < arrlen(current_sockets); ++i) {
 		int sock = current_sockets[i];
@@ -143,13 +147,19 @@ coroutine void ws_send_all_packet(BufWriter* packet)
 	arrfree(current_sockets);
 }
 
+// Hoisted definition
+coroutine void ws_disconnect(int socket);
+
 coroutine void ws_send_packet(int socket, BufWriter* packet)
 {
 	if (!socket_keep_running) {
 		return;
 	}
 	time_t deadline = now() + 5000;
-	msend(socket, packet->start, bw_size(packet), deadline);
+	int rc = msend(socket, packet->start, bw_size(packet), deadline);
+	if (rc < 0) {
+		ws_disconnect(socket);
+	}
 }
 
 void write_worker_info(BufWriter* packet, WorkerInfo* worker)
@@ -170,8 +180,6 @@ void write_worker_infos(BufWriter* packet, WorkerType type)
 	}
 }
 
-coroutine void ws_disconnect(int socket);
-
 coroutine void ws_listen(int socket)
 {
 	char buf[1024];
@@ -179,12 +187,11 @@ coroutine void ws_listen(int socket)
 	int consecutive_errors = 0;
 	const int max_consecutive_errors = 3;
 
-	while (socket_keep_running  && connection_alive) {
+	while (socket_keep_running && connection_alive) {
 		memset(buf, 0, sizeof(buf));
 
-		// Receive a WebSocket packet
-		int64_t deadline = now() + 5000; 
-		size_t size = mrecv(socket, buf, sizeof(buf), deadline);
+		// Receive a WebSocket packet (will block indefinately)
+		size_t size = mrecv(socket, buf, sizeof(buf), -1);
 
 		// Handle disconnection or errors
 		if (size < 0) {
@@ -271,7 +278,9 @@ coroutine void ws_connect(int socket)
 		log_message(LOG_ERROR, "Error attaching WS server: %d - %s", errno, strerror(errno));
 		return;
 	}
+	pthread_mutex_lock(&event_sockets_mutex);
 	arrput(event_sockets, socket);
+	pthread_mutex_unlock(&event_sockets_mutex);
 
 	// Start listening
 	go(ws_listen(socket));
@@ -303,12 +312,14 @@ coroutine void ws_connect(int socket)
 coroutine void ws_disconnect(int socket)
 {
 	// Remove from event sockets
+	pthread_mutex_lock(&event_sockets_mutex);
 	for (int i = 0; i < arrlen(event_sockets); i++) {
 		if (event_sockets[i] == socket) {
 			arrdel(event_sockets, i);
 			break;
 		}
 	}
+	pthread_mutex_unlock(&event_sockets_mutex);
 
 	// Close WebSocket
 	socket = ws_detach(socket, 1000, "Normal Closure", 15, -1);
@@ -518,17 +529,18 @@ void handle_http(int socket)
 
 void parse_command(char* input)
 {
-	char* command = strtok(input, " ");
+	char* saveptr = NULL;
+	char* command = strtok_r(input, " ", &saveptr);
 	if (!command) {
 		return;
 	}
 
 	if (strcmp(command, "start_generation") == 0) {
-		char* repo_url = strtok(NULL, " ");
-		char* download_base_url = strtok(NULL, " ");
-		char* game_server_base_url = strtok(NULL, " ");
-		char* commit_hashes_file_name = strtok(NULL, " ");
-		char* max_top_placers_str = strtok(NULL, " ");
+		char* repo_url = strtok_r(NULL, " ", &saveptr);
+		char* download_base_url = strtok_r(NULL, " ", &saveptr);
+		char* game_server_base_url = strtok_r(NULL, " ", &saveptr);
+		char* commit_hashes_file_name = strtok_r(NULL, " ", &saveptr);
+		char* max_top_placers_str = strtok_r(NULL, " ", &saveptr);
 		int max_top_placers = atoi(max_top_placers_str);
 		if (repo_url && download_base_url && commit_hashes_file_name && game_server_base_url) {
 			Config config = (Config) {
@@ -638,7 +650,7 @@ void stop_console()
 		ws_disconnect(event_sockets[i]);
 	}
 
-	repl_keep_running = 0;
+	repl_keep_running = false;
 	pthread_cancel(	repl_thread_id);
 	socket_keep_running = false;
 	pthread_cancel(socket_thread_id);
@@ -695,7 +707,7 @@ void update_worker_stats(WorkerType worker_type, int count)
 	puts(print);
 }
 
-void update_backups_stats(int backups_total, float backups_per_second, CanvasInfo current_info)
+void update_backups_stats(int backups_total, float backups_per_second, CommitInfo current_info)
 {
 	// TODO: Send websocket update
 

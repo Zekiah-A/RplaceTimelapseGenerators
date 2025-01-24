@@ -1,8 +1,11 @@
+#include <avcall.h>
+#include <cstdint>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <curl/curl.h>
 #include <unistd.h>
+#include <avcall.h>
 
 #include "download_worker.h"
 #include "worker_enums.h"
@@ -10,6 +13,7 @@
 #include "../console.h"
 #include "../memory_utils.h"
 #include "../main_thread.h"
+#include "../database.h"
 
 #include "../lib/stb/stb_ds.h"
 #include "../lib/parson/parson.h"
@@ -89,7 +93,7 @@ static struct fetch_result fetch_url(const char* url, CURL* curl_handle)
 
 struct canvas_metadata download_canvas_metadata(const char* metadata_url, CURL* curl_handle)
 {
-	struct canvas_metadata metadata = { .palette = NULL, .palette_size = 0 };
+	CanvasMetadata metadata = { .palette = NULL, .palette_size = 0 };
 	struct fetch_result metadata_response = fetch_url(metadata_url, curl_handle);
 
 	if (metadata_response.size == 0) {
@@ -188,8 +192,8 @@ User* get_user(const WorkerInfo* worker_info, int int_id)
 		return NULL;
 	}
 	user->last_joined = (time_t)json_object_get_number(root_obj, "lastJoined");
-	user->pixels_placed = json_object_get_number(root_obj, "pixelsPlaced");
-	user->play_time_seconds = json_object_get_number(root_obj, "playTimeSeconds");
+	user->pixels_placed = (uint32_t) json_object_get_number(root_obj, "pixelsPlaced");
+	user->play_time_seconds = (uint32_t) json_object_get_number(root_obj, "playTimeSeconds");
 	json_value_free(root);
 
 	// Cache user in global download worker user map
@@ -249,67 +253,137 @@ struct top_placers get_top_placers(const WorkerInfo* worker_info, uint32_t* plac
 	return result;
 }
 
-DownloadResult download(const WorkerInfo* worker_info, CanvasInfo canvas_info)
+DownloadResult* download(const WorkerInfo* worker_info, DownloadJob job)
 {
 	const Config* config = worker_info->config;
 	DownloadWorkerInstance* instance = worker_info->download_worker_instance;
-	DownloadResult result = {
-		// Error handling
-		.download_error = DOWNLOAD_ERROR_NONE,
-		.error_msg = NULL,
-
-		// Previous structs
-		.canvas_info = canvas_info
-	};
-
-	AUTOFREE char* canvas_url = NULL;
-	asprintf(&canvas_url, "%s/%s/place", config->download_base_url, canvas_info.commit_hash);
-
-	struct fetch_result canvas_data = fetch_url(canvas_url, instance->curl_handle);
-	if (canvas_data.error != CURLE_OK) {
-		result.download_error = DOWNLOAD_FAIL_FETCH;
-		asprintf(&result.error_msg, "Failed to fetch canvas data: %s", canvas_data.error_msg);
-		return result;
-	}
 
 	// Download and parse metadata
 	AUTOFREE char* metadata_url = NULL;
-	asprintf(&metadata_url, "%s/%s/metadata.json", config->download_base_url, canvas_info.commit_hash);
+	asprintf(&metadata_url, "%s/%s/metadata.json", config->download_base_url, job.commit_hash);
 
-	struct canvas_metadata metadata = download_canvas_metadata(metadata_url, instance->curl_handle);
+	CanvasMetadata metadata = download_canvas_metadata(metadata_url, instance->curl_handle);
 	if (metadata.palette == NULL) {
-		result.download_error = DOWNLOAD_FAIL_METADATA;
-		result.error_msg = strdup("Failed to download or parse metadata");
-		free(canvas_data.memory);
-		return result;
+		DownloadResult* results = NULL;
+		DownloadResult result = (DownloadResult) { .download_error = DOWNLOAD_FAIL_METADATA, .error_msg = strdup("Failed to download or parse metadata") };
+		arrput(results, result);
+		return results;
 	}
+	// Add canvas metadata to DB
+	av_alist metadata_save_alist;
+	av_start_void(metadata_save_alist, &add_canvas_metadata_to_db);
+	av_struct(metadata_save_alist, CanvasMetadata, metadata); 
+	database_thread_post(metadata_save_alist);
 
-	// Download placers
-	AUTOFREE char* placers_url = NULL;
-	asprintf(&placers_url, "%s/%s/placers", config->download_base_url, canvas_info.commit_hash);
+	switch (job.type) {
+		case DOWNLOAD_CANVAS: {
+			AUTOFREE char* canvas_url = NULL;
+			asprintf(&canvas_url, "%s/%s/place", config->download_base_url, job.commit_hash);
 
-	struct fetch_result placers_data = fetch_url(placers_url, instance->curl_handle);
-	if (placers_data.error != CURLE_OK) {
-		result.download_error = DOWNLOAD_FAIL_FETCH;
-		asprintf(&result.error_msg, "Failed to fetch placers data: %s", placers_data.error_msg);
-		free(canvas_data.memory);
-		return result;
+			struct fetch_result canvas_data = fetch_url(canvas_url, instance->curl_handle);
+			if (canvas_data.error != CURLE_OK) {
+				char* error_msg = NULL;
+				asprintf(&error_msg, "Failed to fetch canvas data: %s", canvas_data.error_msg);
+				DownloadResult* results = NULL;
+				DownloadResult result = (DownloadResult) { .download_error = DOWNLOAD_FAIL_FETCH, .error_msg = error_msg };
+				arrput(results, result);
+				return results;
+			}
+
+			DownloadResult* results = NULL;
+			DownloadResult result = {
+				// Inherited from WorkerResult
+				.download_error = DOWNLOAD_ERROR_NONE,
+				.error_msg = NULL,
+				// Members
+				.render_job = {
+					// Inherited from WorkerJob
+					.commit_hash = job.commit_hash,
+					.date = job.date,
+					// Members
+					.type = RENDER_CANVAS,
+					.canvas = {
+						.width = metadata.width,
+						.height = metadata.height,
+						.palette_size = metadata.palette_size,
+						.palette = metadata.palette,
+						.size = canvas_data.size,
+						.data = canvas_data.memory
+					}
+				}
+			};
+			arrput(results, result);
+			return results;
+		}
+		case DOWNLOAD_PLACERS: {
+			AUTOFREE char* placers_url = NULL;
+			asprintf(&placers_url, "%s/%s/placers", config->download_base_url, job.commit_hash);
+			struct fetch_result placers_data = fetch_url(placers_url, instance->curl_handle);
+			if (placers_data.error != CURLE_OK) {
+				char* error_msg = NULL;
+				asprintf(&error_msg, "Failed to fetch placers data: %s", placers_data.error_msg);
+				DownloadResult* results = NULL;
+				DownloadResult result = (DownloadResult) { .download_error = DOWNLOAD_FAIL_FETCH, .error_msg = error_msg };
+				arrput(results, result);
+				return results;
+			}
+
+			DownloadResult* results = NULL;
+			struct top_placers top_placers = get_top_placers(worker_info, (uint32_t*) placers_data.memory,
+				placers_data.size, config->max_top_placers);
+
+			DownloadResult top_placers_result = {
+				// Inherited from WorkerResult
+				.download_error = DOWNLOAD_ERROR_NONE,
+				.error_msg = NULL,
+				// Members
+				.render_job = {
+					// Inherited from WorkerJob
+					.commit_hash = job.commit_hash,
+					.date = job.date,
+					// Members
+					.type = RENDER_TOP_PLACERS,
+					.top_placers = {
+						.top_placers = top_placers.placers,
+						.top_placers_size = top_placers.size
+					}
+				}
+			};
+			arrput(results, top_placers_result);
+
+			DownloadResult canvas_control_result = {
+				// Inherited from WorkerResult
+				.download_error = DOWNLOAD_ERROR_NONE,
+				.error_msg = NULL,
+				// Members
+				.render_job = {
+					// Inherited from WorkerJob
+					.commit_hash = job.commit_hash,
+					.date = job.date,
+					// Members
+					.type = RENDER_CANVAS_CONTROL,
+					.canvas_control = {
+						// Inherited from RenderJobTopPlacers
+						.top_placers = top_placers.placers,
+						.top_placers_size = top_placers.size,
+						// Members
+						.width = metadata.width,
+						.height = metadata.height,
+						.placers = (uint32_t*) placers_data.memory,
+						.placers_size = placers_data.size / sizeof(uint32_t)
+					}
+				}
+			};
+			arrput(results, canvas_control_result);
+			return results;
+		}
+		default: {
+			DownloadResult* results = NULL;
+			DownloadResult result = (DownloadResult) { .download_error = DOWNLOAD_FAIL_TYPE, .error_msg = strdup("Invalid download job type") };
+			arrput(results, result);
+			return results;
+		}
 	}
-
-	struct top_placers top_placers = get_top_placers(worker_info, (uint32_t*) placers_data.memory,
-		placers_data.size, config->max_top_placers);
-
-	result.canvas = (uint8_t*) canvas_data.memory;
-	result.canvas_size = canvas_data.size;
-	result.width = metadata.width;
-	result.height = metadata.height;
-	result.palette_size = metadata.palette_size;
-	result.palette = metadata.palette;
-	result.placers_size = placers_data.size / 4;
-	result.placers = (uint32_t*) placers_data.memory;
-	result.top_placers_size = top_placers.size;
-	result.top_placers = top_placers.placers;
-	return result;
 }
 
 void* start_download_worker(void* data)
@@ -321,18 +395,25 @@ void* start_download_worker(void* data)
 	CURL* curl_handle = curl_easy_init();
 	worker_info->download_worker_instance->curl_handle = curl_handle;
 
-	log_message(LOG_INFO, LOG_HEADER"Started download worker with thread id %d", worker_info->worker_id, worker_info->thread_id);
+	log_message(LOG_INFO, LOG_HEADER"Started download worker with thread id %d",
+		worker_info->worker_id, worker_info->thread_id);
 
 	// Enter download loop
 	while (true) {
-		CanvasInfo canvas_info = pop_download_stack(worker_info->worker_id);
+		DownloadJob job = pop_download_stack(worker_info->worker_id);
 
-		DownloadResult result = download(worker_info, canvas_info);
-		if (result.download_error != DOWNLOAD_ERROR_NONE) {
-			log_message(LOG_ERROR, LOG_HEADER"Download %s failed with error %d message %s", worker_info->worker_id, canvas_info.commit_hash, result.download_error, result.error_msg);
-			continue;
+		DownloadResult* results = download(worker_info, job);
+		for (int i = 0; i < arrlen(results); i++) {
+			DownloadResult result = results[i];
+			if (result.download_error != DOWNLOAD_ERROR_NONE) {
+				log_message(LOG_ERROR, LOG_HEADER"Download %s failed with error %d message %s",
+					worker_info->worker_id, job.commit_hash, result.download_error, result.error_msg);
+				free(result.error_msg);
+				continue;
+			}
+			push_render_stack(result.render_job);
 		}
-		push_render_stack(result);
+		arrfree(results);
 	}
 	return NULL;
 }

@@ -59,9 +59,10 @@ Colour default_palette[32] = {
 };
 
 struct image_result {
-	uint8_t* image;
-	size_t image_size;
+	uint8_t* data;
+	size_t size;
 	RenderError error;
+	// Has to be malloc allocated
 	char* error_msg;
 };
 
@@ -75,7 +76,7 @@ cairo_status_t cairo_write(void* closure, const unsigned char* data, unsigned in
     return CAIRO_STATUS_SUCCESS;
 }
 
-struct image_result generate_top_placers_image(Placer* top_placers, int top_placers_size)
+struct image_result generate_top_placers_image(Placer* top_placers, size_t top_placers_size)
 {
 	struct image_result result = {
 		.error = RENDER_ERROR_NONE,
@@ -185,8 +186,8 @@ struct image_result generate_canvas_control_image(int width, int height, uint32_
 	fclose(memory_stream);
 	png_destroy_write_struct(&png_ptr, &info_ptr);
 	
-	result.image = (uint8_t*) stream_buffer;
-	result.image_size = stream_length;
+	result.data = (uint8_t*) stream_buffer;
+	result.size = stream_length;
 	return result;
 }
 
@@ -285,8 +286,8 @@ struct image_result generate_date_image(time_t date, int style)
 	fclose(memory_stream);
 	cairo_surface_destroy(surface);
 
-	result.image = buffer;
-	result.image_size = buffer_size;
+	result.data = buffer;
+	result.size = buffer_size;
 	return result;
 }
 
@@ -366,54 +367,66 @@ struct image_result generate_canvas_image(int width, int height, uint8_t* board,
 	fclose(memory_stream);
 	png_destroy_write_struct(&png_ptr, &info_ptr);
 	
-	result.image = (uint8_t*) stream_buffer;
-	result.image_size = stream_length;
+	result.data = (uint8_t*) stream_buffer;
+	result.size = stream_length;
 	return result;
 }
 
-RenderResult render(DownloadResult download_result)
+RenderResult render(RenderJob job)
 {
-	struct image_result canvas_result = generate_canvas_image(download_result.width, download_result.height,
-		download_result.canvas, download_result.palette_size, download_result.palette);
-	if (canvas_result.error != RENDER_ERROR_NONE) {
-		return (RenderResult) { .render_error = canvas_result.error, .error_msg = canvas_result.error_msg };
-	}
-	
-	struct image_result date_result = generate_date_image(download_result.canvas_info.date, 0);
-	if (date_result.error != RENDER_ERROR_NONE) {
-		return (RenderResult) { .render_error = canvas_result.error, .error_msg = canvas_result.error_msg };
-	}
+	SaveJobType save_type = -1;
+	struct image_result image = { 0 };
 
-	struct image_result top_placers_result = generate_top_placers_image(
-		download_result.top_placers, download_result.top_placers_size);
-	if (top_placers_result.error != RENDER_ERROR_NONE) {
-		return (RenderResult) { .render_error = canvas_result.error, .error_msg = canvas_result.error_msg };
-	}
-
-	struct image_result canvas_control_result = generate_canvas_control_image(download_result.width, download_result.height,
-		download_result.placers, download_result.top_placers, download_result.top_placers_size);
-	if (canvas_control_result.error != RENDER_ERROR_NONE) {
-		return (RenderResult) { .render_error = canvas_result.error, .error_msg = canvas_result.error_msg };
+	switch (job.type) {
+		case RENDER_CANVAS: {
+			image = generate_canvas_image(job.canvas.width, job.canvas.height,
+				job.canvas.data, job.canvas.size, job.canvas.palette);
+			if (image.error != RENDER_ERROR_NONE) {
+				return (RenderResult) { .render_error = image.error, .error_msg = image.error_msg };
+			}
+			save_type = SAVE_CANVAS_RENDER;
+		}
+		case RENDER_DATE: {
+			image = generate_date_image(job.date, 0);
+			if (image.error != RENDER_ERROR_NONE) {
+				return (RenderResult) { .render_error = image.error, .error_msg = image.error_msg };
+			}
+			save_type = SAVE_DATE_RENDER;
+		}
+		case RENDER_TOP_PLACERS: {
+			image = generate_top_placers_image(
+				job.top_placers.top_placers, job.top_placers.top_placers_size);
+			if (image.error != RENDER_ERROR_NONE) {
+				return (RenderResult) { .render_error = image.error, .error_msg = image.error_msg };
+			}
+			save_type = SAVE_TOP_PLACERS_RENDER;
+		}
+		case RENDER_CANVAS_CONTROL: {
+			image = generate_canvas_control_image(job.canvas_control.width, job.canvas_control.height,
+				job.canvas_control.placers, job.canvas_control.top_placers, job.canvas_control.top_placers_size);
+			if (image.error != RENDER_ERROR_NONE) {
+				return (RenderResult) { .render_error = image.error, .error_msg = image.error_msg };
+			}
+			save_type = SAVE_CANVAS_CONTROL_RENDER;
+		}
+		default: {
+			return (RenderResult) { .render_error = RENDER_FAIL_TYPE, .error_msg = strdup("Invalid render job type") };
+		}
 	}
 
 	RenderResult result = {
-		// Error handling
+		// Inherited from WorkerResult
 		.render_error = RENDER_ERROR_NONE,
 		.error_msg = NULL,
+		// Members
+		.save_job = {
+			.commit_hash = job.commit_hash,
+			.date = job.date,
 
-		// Previous structs
-		.canvas_info = download_result.canvas_info,
-		.download_result = download_result,
-
-		// Image results
-		.canvas_image = canvas_result.image,
-		.canvas_image_size = canvas_result.image_size,
-		.date_image = date_result.image,
-		.date_image_size = date_result.image_size,
-		.top_placers_image = top_placers_result.image,
-		.top_placers_image_size = top_placers_result.image_size,
-		.canvas_control_image = canvas_control_result.image,
-		.canvas_control_image_size = canvas_control_result.image_size,
+			.type = save_type,
+			.data = image.data,
+			.size = image.size
+		}
 	};
 	return result;
 }
@@ -423,19 +436,21 @@ void* start_render_worker(void* data)
 	// Initialise worker / thread globals
 	const WorkerInfo* worker_info = (const WorkerInfo*) data;
 
-	log_message(LOG_INFO, LOG_HEADER"Started render worker with thread id %d", worker_info->worker_id, worker_info->thread_id);
+	log_message(LOG_INFO, LOG_HEADER"Started render worker with thread id %d",
+		worker_info->worker_id, worker_info->thread_id);
 
 	// Enter render loop
 	while (true) {
-		DownloadResult download_result = pop_render_stack(worker_info->worker_id);
-		CanvasInfo info = download_result.canvas_info;
+		RenderJob job = pop_render_stack(worker_info->worker_id);
 
-		RenderResult result = render(download_result);
+		RenderResult result = render(job);
 		if (result.render_error != RENDER_ERROR_NONE) {
-			log_message(LOG_ERROR, LOG_HEADER"Render %s failed with error %d message %s", worker_info->worker_id, info.commit_hash, result.render_error, result.error_msg);
+			log_message(LOG_ERROR, LOG_HEADER"Render %s failed with error %d message %s",
+				worker_info->worker_id, job.commit_hash, result.render_error, result.error_msg);
+			free(result.error_msg);
 			continue;
 		}
-		push_save_stack(result);
+		push_save_stack(result.save_job);
 	}
 	return NULL;
 }

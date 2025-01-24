@@ -48,11 +48,50 @@ add_executable(${PROJECT_NAME} ${SOURCE_FILES})
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LIBGIT2 REQUIRED libgit2)
 find_package(SQLite3 REQUIRED)
-find_package(PkgConfig REQUIRED)
 pkg_check_modules(CAIRO REQUIRED cairo)
 
 # Link libraries
 target_link_libraries(${PROJECT_NAME} PRIVATE png curl m readline dill nanobuf parson ffcall ${LIBGIT2_LIBRARIES} SQLite::SQLite3 ${CAIRO_LIBRARIES})
+
+# Debug & release build profiles
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+	target_compile_options(${PROJECT_NAME} PRIVATE
+		-Wall
+		-Wextra
+		-Wpedantic
+		-Wshadow
+		-Wfloat-equal
+		-Wformat=2
+		-Wnull-dereference
+		-Wstrict-overflow=5
+		-Wunreachable-code-aggressive
+		-Walloca
+		-Walloc-zero
+		-Wredundant-decls
+		-Wformat-security
+		-fsanitize=address
+		-fsanitize=undefined
+		-fsanitize=leak
+		-fno-omit-frame-pointer
+		-fstack-protector-strong
+		-D_FORTIFY_SOURCE=2
+	)
+	target_link_options(${PROJECT_NAME} PRIVATE
+		-fsanitize=address
+		-fsanitize=undefined
+		-fsanitize=leak
+		-fno-omit-frame-pointer
+	)
+endif()
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+	target_compile_options(${PROJECT_NAME} PRIVATE
+		-O2
+		-DNDEBUG
+	)
+	target_link_options(${PROJECT_NAME} PRIVATE
+		-O2
+	)
+endif()
 
 # Set web build directory variable
 set(WEB_BUILD_DIR ${CMAKE_SOURCE_DIR}/web/dist)

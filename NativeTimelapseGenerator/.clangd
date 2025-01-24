@@ -1,6 +1,36 @@
 CompileFlags:
   Add: 
+    # Microsoft extensions for anonymous structs
+    - -fms-extensions
+    # Ultra pedantic warnings
     - -Wall
     - -Wextra
     - -Wpedantic
-    - -fms-extensions
+    - -Wshadow
+    - -Wconversion
+    - -Wfloat-equal
+    - -Wdouble-promotion
+    - -Wformat=2
+    - -Wcast-align
+    - -Wpointer-arith
+    - -Wnon-virtual-dtor
+    - -Woverloaded-virtual
+    - -Wstrict-overflow=5
+    - -Wnull-dereference
+    - -Wformat-security
+    - -Wredundant-decls
+    - -Wundef
+    - -Wzero-as-null-pointer-constant
+    - -Wold-style-cast
+    - -Wuseless-cast
+    - -Walloca
+    - -Walloc-zero
+    - -Wunaligned-access
+    - -Wunreachable-code-aggressive
+    - -fno-omit-frame-pointer
+    # Disable warnings
+    - -Wno-missing-declarations
+    - -Wno-gnu-anonymous-struct
+    - -Wno-sign-conversion
+    - -Wno-cast-align
+    - -Wno-strict-prototypes

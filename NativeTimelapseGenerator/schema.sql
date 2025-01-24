@@ -76,12 +76,12 @@ CREATE TABLE IF NOT EXISTS CommitTopPlacers (
 );
 
 -- Stores details of rendered details.
-CREATE TABLE IF NOT EXISTS Renders (
+CREATE TABLE IF NOT EXISTS Saves (
 	id INTEGER PRIMARY KEY,            -- Unique identifier for the rendered canvas.
 	commit_id INTEGER NOT NULL,        -- ID of the associated commit.
 	start_date INTEGER NOT NULL,       -- Timestamp of when the canvas render was started (UNIX epoch time).
 	finish_date INTEGER NOT NULL,      -- Timestamp of when the canvas render was completed (UNIX epoch time).
-	type INTEGER NOT NULL,             -- 0 Canvas 1 Date 2 Top placers 3 Canvas control
+	type INTEGER NOT NULL,             -- Type of render (0: CANVAS_DOWNLOAD, 1: CANVAS_RENDER, 2: DATE_RENDER, 3: PLACERS_DOWNLOAD, 4: TOP_PLACERS_RENDER, 5: CANVAS_CONTROL_RENDER).
 	save_path TEXT NOT NULL,           -- File path where the render is stored.
 	FOREIGN KEY (commit_id) REFERENCES Commits(id)
 );
