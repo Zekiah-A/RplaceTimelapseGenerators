@@ -10,6 +10,7 @@
 #include "../console.h"
 #include "../main_thread.h"
 #include "../memory_utils.h"
+#include "../database.h"
 
 #define LOG_HEADER "[save worker %d] "
 
@@ -42,36 +43,36 @@ SaveResult save(SaveJob job)
 	char timestamp[64];
 	struct tm timeinfo;
 	if (gmtime_r(&job.date, &timeinfo) == NULL) {
-		return (SaveResult) { .save_error = SAVE_ERROR_FAIL, .error_msg = strdup("Failed to convert time to GMT") };
+		return (SaveResult) { .save_error = SAVE_ERROR_DATETIME, .error_msg = strdup("Failed to convert time to GMT") };
 	}
 	if (strftime(timestamp, sizeof(timestamp), "%Y-%m-%dT%H:%M:%SZ", &timeinfo) == 0) {
-		return (SaveResult) { .save_error = SAVE_ERROR_FAIL, .error_msg = strdup("Failed to format timestamp") };
+		return (SaveResult) { .save_error = SAVE_ERROR_DATETIME, .error_msg = strdup("Failed to format timestamp") };
 	}
 
 	AUTOFREE char* save_path = NULL;
 	switch (job.type) {
 		case SAVE_PLACERS_DOWNLOAD: {
-			asprintf(&save_path, "placer_downloads/%s_%s.png", timestamp, job.commit_hash);
+			asprintf(&save_path, "placer_downloads/%s_%d_%s", timestamp, job.commit_id, job.commit_hash);
 			break;
 		}
 		case SAVE_CANVAS_DOWNLOAD: {
-			asprintf(&save_path, "canvas_downloads/%s_%s.png", timestamp, job.commit_hash);
+			asprintf(&save_path, "canvas_downloads/%s_%d_%s", timestamp, job.commit_id, job.commit_hash);
 			break;
 		}
 		case SAVE_CANVAS_RENDER: {
-			asprintf(&save_path, "canvas_renders/%s_%s.png", timestamp, job.commit_hash);
+			asprintf(&save_path, "canvas_renders/%s_%d_%s.png", timestamp, job.commit_id, job.commit_hash);
 			break;
 		}
 		case SAVE_DATE_RENDER: {
-			asprintf(&save_path, "date_renders/%s_%s.png", timestamp, job.commit_hash);
+			asprintf(&save_path, "date_renders/%s_%d_%s.png", timestamp, job.commit_id, job.commit_hash);
 			break;
 		}
 		case SAVE_TOP_PLACERS_RENDER: {
-			asprintf(&save_path, "top_placer_renders/%s_%s.png", timestamp, job.commit_hash);
+			asprintf(&save_path, "top_placer_renders/%s_%d_%s.png", timestamp, job.commit_id, job.commit_hash);
 			break;
 		}
 		case SAVE_CANVAS_CONTROL_RENDER: {
-			asprintf(&save_path, "canvas_control_renders/%s_%s.png", timestamp, job.commit_hash);
+			asprintf(&save_path, "canvas_control_renders/%s_%d_%s.png", timestamp, job.commit_id, job.commit_hash);
 			break;
 		}
 		default: {
@@ -79,9 +80,14 @@ SaveResult save(SaveJob job)
 		}
 	}
 
+	// Save file locally  to filesystem
 	char* error_msg = NULL;
 	if (save_file(save_path, job.data, job.size, &error_msg) != 0) {
-		return (SaveResult) { .save_error = SAVE_ERROR_FAIL, .error_msg = error_msg };
+		return (SaveResult) { .save_error = SAVE_ERROR_FILESYSTEM, .error_msg = error_msg };
+	}
+	// Ensure saves are written to database
+	if (!add_save_to_db(job.commit_id, job.type, save_path)) {
+		return (SaveResult) { .save_error = SAVE_ERROR_DATABASE, .error_msg = strdup("Failed to write save to database") };
 	}
 
 	SaveResult result = {
@@ -90,6 +96,7 @@ SaveResult save(SaveJob job)
 		.error_msg = NULL,
 		// Members
 		.stats_job = {
+			.commit_id = job.commit_id,
 			.commit_hash = job.commit_hash,
 			.date = job.date,
 			.save_path = save_path

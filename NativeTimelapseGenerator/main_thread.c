@@ -47,7 +47,6 @@ WorkerInfo** save_workers = NULL; // stb array
 time_t completed_backups_date = 0;
 int completed_backups_since = 0;
 int completed_backups = 0;
-CommitInfo* completed_canvas_info = NULL;
 
 // CONFIG
 Config _config = { 0 };
@@ -207,27 +206,25 @@ void push_save_stack(SaveJob job)
 	push_stack(&save_stack, &job);
 }
 
+void collect_backup_stats()
+{
+	// TODO: Implement this
+	/*time_t now = time(0);
+	float backups_per_second = ((float)(now - completed_backups_date)) / (float) completed_backups_since;
+	update_backups_stats(completed_backups, backups_per_second, *completed_canvas_info);
+	completed_backups_since = 0;
+	completed_backups_date = now;*/
+}
+
 // Called by save worker
 void push_completed(SaveResult result)
 {
-	// TODO: Reimplement this
-	log_message(LOG_ERROR,  "TODO: FIXME: Implement push completed");
-
+	// TODO: Implement this
 	completed_backups++;
 	completed_backups_since++;
 	av_alist backup_alist;
 	av_start_void(backup_alist, &collect_backup_stats);
 	main_thread_post(backup_alist);
-}
-
-// Called by save worker on main thread, will forward collected info to UI thread
-void collect_backup_stats()
-{
-	time_t now = time(0);
-	float backups_per_second = ((float)(now - completed_backups_date)) / (float) completed_backups_since;
-	update_backups_stats(completed_backups, backups_per_second, *completed_canvas_info);
-	completed_backups_since = 0;
-	completed_backups_date = now;
 }
 
 // Forward declarations
@@ -237,7 +234,7 @@ FILE* commit_hashes_stream = NULL;
 // Called by download worker
 DownloadJob pop_download_stack(int worker_id)
 {
-	DownloadJob result;
+	DownloadJob result = { 0 };
 	while (!pop_stack(&download_stack, &result)) {
 		usleep(10000); // Wait for 10ms
 	}
@@ -247,7 +244,7 @@ DownloadJob pop_download_stack(int worker_id)
 // Called by render worker
 RenderJob pop_render_stack(int worker_id)
 {
-	RenderJob result;
+	RenderJob result = { 0 };
 	while (!pop_stack(&render_stack, &result)) {
 		usleep(10000); // Wait for 10ms
 	}
@@ -257,7 +254,7 @@ RenderJob pop_render_stack(int worker_id)
 // Called by save worker
 SaveJob pop_save_stack(int worker_id)
 {
-	SaveJob result;
+	SaveJob result = { 0 };
 	while (!pop_stack(&save_stack, &result)) {
 		usleep(10000); // Wait for 10ms
 	}
@@ -270,25 +267,31 @@ void designate_jobs(int commit_id, CommitInfo info)
 	// Check canvas download and rendering
 	if (!check_save_exists(commit_id, SAVE_CANVAS_DOWNLOAD)) {
 		DownloadJob download_canvas_job = {
+			.commit_id = commit_id,
 			.commit_hash = info.commit_hash,
 			.date = info.date,
 			.type = DOWNLOAD_CANVAS
 		};
 		push_download_stack(download_canvas_job);
 	}
-	else if (!check_save_exists(commit_id, SAVE_CANVAS_RENDER)) {
+	/*else if (!check_save_exists(commit_id, SAVE_CANVAS_RENDER)) {
 		// If canvas is downloaded but not rendered, render it
 		RenderJob render_canvas_job = {
+			.commit_id = commit_id,
 			.commit_hash = info.commit_hash,
 			.date = info.date,
-			.type = RENDER_CANVAS
+			.type = RENDER_CANVAS,
+			.canvas = {
+				
+			}
 		};
 		push_render_stack(render_canvas_job);
-	}
+	}*/
 
 	// Check placers download and rendering
 	if (!check_save_exists(commit_id, SAVE_PLACERS_DOWNLOAD)) {
 		DownloadJob download_placers_job = {
+			.commit_id = commit_id,
 			.commit_hash = info.commit_hash,
 			.date = info.date,
 			.type = DOWNLOAD_PLACERS
@@ -297,8 +300,9 @@ void designate_jobs(int commit_id, CommitInfo info)
 	}
 	else {
 		// If placers are downloaded, check related renders
-		if (!check_save_exists(commit_id, SAVE_TOP_PLACERS_RENDER)) {
+		/*if (!check_save_exists(commit_id, SAVE_TOP_PLACERS_RENDER)) {
 			RenderJob top_placers_job = {
+				.commit_id = commit_id,
 				.commit_hash = info.commit_hash,
 				.date = info.date,
 				.type = RENDER_TOP_PLACERS
@@ -308,17 +312,19 @@ void designate_jobs(int commit_id, CommitInfo info)
 
 		if (!check_save_exists(commit_id, SAVE_CANVAS_CONTROL_RENDER)) {
 			RenderJob canvas_control_job = {
+				.commit_id = commit_id,
 				.commit_hash = info.commit_hash,
 				.date = info.date,
 				.type = RENDER_CANVAS_CONTROL
 			};
 			push_render_stack(canvas_control_job);
-		}
+		}*/
 	}
 
 	// Check date rendering
 	if (!check_save_exists(commit_id, SAVE_DATE_RENDER)) {
 		RenderJob render_date_job = {
+			.commit_id = commit_id,
 			.commit_hash = info.commit_hash,
 			.date = info.date,
 			.type = RENDER_DATE
@@ -664,6 +670,7 @@ void start_generation(Config config)
 	make_save_dir("top_placer_renders");
 	make_save_dir("canvas_control_renders");
 
+	// Start workers
 	log_message(LOG_INFO, LOG_HEADER"Starting backup generation...");
 	for (int i = 0; i < DEFAULT_DOWNLOAD_WORKER_COUNT; i++) {
 		log_message(LOG_INFO, LOG_HEADER"Adding download worker %d...", i + 1);

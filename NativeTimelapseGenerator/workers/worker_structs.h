@@ -41,6 +41,7 @@ typedef struct canvas_metadata {
 } CanvasMetadata;
 
 typedef struct canvas_info {
+	int commit_id;
 	char* commit_hash;
 	time_t date;
 } CommitInfo;
@@ -66,14 +67,20 @@ typedef struct stats_job {
 	char* save_path;
 } StatsJob;
 
+typedef enum job_type {
+	JOB_TYPE_DOWNLOAD = 1,
+	JOB_TYPE_RENDER = 2,
+	JOB_TYPE_SAVE = 3
+} JobType;
+
 // Save worker
 typedef enum save_job_type {
-	SAVE_CANVAS_DOWNLOAD = 0,
-	SAVE_CANVAS_RENDER = 1,
-	SAVE_DATE_RENDER = 2,
-	SAVE_PLACERS_DOWNLOAD = 3,
-	SAVE_TOP_PLACERS_RENDER = 4,
-	SAVE_CANVAS_CONTROL_RENDER = 5
+	SAVE_CANVAS_DOWNLOAD = 1,
+	SAVE_CANVAS_RENDER = 2,
+	SAVE_DATE_RENDER = 3,
+	SAVE_PLACERS_DOWNLOAD = 4,
+	SAVE_TOP_PLACERS_RENDER = 5,
+	SAVE_CANVAS_CONTROL_RENDER = 6
 } SaveJobType;
 
 typedef struct save_job {
@@ -90,10 +97,10 @@ typedef struct save_result {
 
 // Render worker
 typedef enum render_job_type {
-	RENDER_CANVAS,
-	RENDER_DATE,
-	RENDER_TOP_PLACERS,
-	RENDER_CANVAS_CONTROL
+	RENDER_CANVAS = 1,
+	RENDER_DATE = 2,
+	RENDER_TOP_PLACERS = 3,
+	RENDER_CANVAS_CONTROL = 4
 } RenderJobType;
 
 typedef struct render_job_canvas {
@@ -136,8 +143,8 @@ typedef struct render_result {
 
 // Download worker
 typedef enum download_job_type {
-	DOWNLOAD_CANVAS,
-	DOWNLOAD_PLACERS
+	DOWNLOAD_CANVAS = 1,
+	DOWNLOAD_PLACERS = 2
 } DownloadJobType;
 
 typedef struct download_job {
@@ -147,5 +154,9 @@ typedef struct download_job {
 
 typedef struct download_result {
 	WorkerResult;
-	RenderJob render_job;
+	JobType job_type;
+	union {
+		SaveJob save_job;
+		RenderJob render_job;
+	};
 } DownloadResult;

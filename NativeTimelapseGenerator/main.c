@@ -37,16 +37,16 @@ static error_t parse_opt(int key, char* arg, struct argp_state* state) {
 			arguments->cli_only = true;
 			break;
 		case 'r':
-			arguments->repo_url = arg;
+			arguments->repo_url = strdup(arg);
 			break;
 		case 'd':
-			arguments->download_base_url = arg;
+			arguments->download_base_url = strdup(arg);
 			break;
 		case 'f':
-			arguments->commit_hashes_file_name = arg;
+			arguments->commit_hashes_file_name = strdup(arg);
 			break;
 		case 'g':
-			arguments->game_server_base_url = arg;
+			arguments->game_server_base_url = strdup(arg);
 			break;
 		case 'p':
 			arguments->max_top_placers = atoi(arg);

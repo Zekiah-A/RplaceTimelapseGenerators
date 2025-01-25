@@ -8,6 +8,7 @@ CompileFlags:
     - -Wpedantic
     - -Wshadow
     - -Wconversion
+    - -Wsign-conversion
     - -Wfloat-equal
     - -Wdouble-promotion
     - -Wformat=2
@@ -26,11 +27,8 @@ CompileFlags:
     - -Walloca
     - -Walloc-zero
     - -Wunaligned-access
-    - -Wunreachable-code-aggressive
     - -fno-omit-frame-pointer
     # Disable warnings
     - -Wno-missing-declarations
     - -Wno-gnu-anonymous-struct
-    - -Wno-sign-conversion
-    - -Wno-cast-align
     - -Wno-strict-prototypes

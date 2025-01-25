@@ -64,23 +64,19 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
 		-Wformat=2
 		-Wnull-dereference
 		-Wstrict-overflow=5
-		-Wunreachable-code-aggressive
 		-Walloca
 		-Walloc-zero
 		-Wredundant-decls
 		-Wformat-security
-		-fsanitize=address
-		-fsanitize=undefined
-		-fsanitize=leak
+		-Wsign-conversion
+		-Wconversion
+		#-fsanitize=address
+		#-fsanitize=undefined
+		#-fsanitize=leak
+		-Wno-unused-parameter
 		-fno-omit-frame-pointer
 		-fstack-protector-strong
 		-D_FORTIFY_SOURCE=2
-	)
-	target_link_options(${PROJECT_NAME} PRIVATE
-		-fsanitize=address
-		-fsanitize=undefined
-		-fsanitize=leak
-		-fno-omit-frame-pointer
 	)
 endif()
 if(CMAKE_BUILD_TYPE STREQUAL "Release")

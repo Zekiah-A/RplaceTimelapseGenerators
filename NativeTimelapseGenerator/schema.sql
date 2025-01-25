@@ -81,7 +81,7 @@ CREATE TABLE IF NOT EXISTS Saves (
 	commit_id INTEGER NOT NULL,        -- ID of the associated commit.
 	start_date INTEGER NOT NULL,       -- Timestamp of when the canvas render was started (UNIX epoch time).
 	finish_date INTEGER NOT NULL,      -- Timestamp of when the canvas render was completed (UNIX epoch time).
-	type INTEGER NOT NULL,             -- Type of render (0: CANVAS_DOWNLOAD, 1: CANVAS_RENDER, 2: DATE_RENDER, 3: PLACERS_DOWNLOAD, 4: TOP_PLACERS_RENDER, 5: CANVAS_CONTROL_RENDER).
+	type INTEGER NOT NULL,             -- Type of render (1: CANVAS_DOWNLOAD, 2: CANVAS_RENDER, 3: DATE_RENDER, 4: PLACERS_DOWNLOAD, 5: TOP_PLACERS_RENDER, 6: CANVAS_CONTROL_RENDER).
 	save_path TEXT NOT NULL,           -- File path where the render is stored.
 	FOREIGN KEY (commit_id) REFERENCES Commits(id)
 );

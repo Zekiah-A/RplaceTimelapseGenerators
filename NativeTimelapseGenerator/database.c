@@ -60,29 +60,29 @@ bool add_save_to_db(int commit_id, SaveJobType type, const char* save_path)
 
 bool check_save_exists(int commit_id, SaveJobType type)
 {
-    pthread_mutex_lock(&database_mutex);
-    sqlite3_stmt* stmt;
-    int save_exists = 0;
+	pthread_mutex_lock(&database_mutex);
+	sqlite3_stmt* stmt;
+	int save_exists = 0;
 
-    const char* sql = "SELECT COUNT(*) FROM Saves WHERE commit_id = ? AND type = ?";
-    
-    if (sqlite3_prepare_v2(database, sql, -1, &stmt, 0) != SQLITE_OK) {
-        log_message(LOG_ERROR, "[database] Failed to prepare save check statement: %s\n", sqlite3_errmsg(database));
-        pthread_mutex_unlock(&database_mutex);
-        return false;
-    }
+	const char* sql = "SELECT COUNT(*) FROM Saves WHERE commit_id = ? AND type = ?";
+	
+	if (sqlite3_prepare_v2(database, sql, -1, &stmt, 0) != SQLITE_OK) {
+		log_message(LOG_ERROR, "[database] Failed to prepare save check statement: %s\n", sqlite3_errmsg(database));
+		pthread_mutex_unlock(&database_mutex);
+		return false;
+	}
 
-    sqlite3_bind_int(stmt, 1, commit_id);
-    sqlite3_bind_int(stmt, 2, type);
+	sqlite3_bind_int(stmt, 1, commit_id);
+	sqlite3_bind_int(stmt, 2, type);
 
-    if (sqlite3_step(stmt) == SQLITE_ROW) {
-        save_exists = sqlite3_column_int(stmt, 0);
-    }
+	if (sqlite3_step(stmt) == SQLITE_ROW) {
+		save_exists = sqlite3_column_int(stmt, 0);
+	}
 
-    sqlite3_finalize(stmt);
-    pthread_mutex_unlock(&database_mutex);
+	sqlite3_finalize(stmt);
+	pthread_mutex_unlock(&database_mutex);
 
-    return save_exists > 0;
+	return save_exists > 0;
 }
 
 void compute_palette_hash(const Colour* palette, int palette_size, char* out_hash)
@@ -392,8 +392,8 @@ int find_existing_instance(const Config* config)
 		return -1;
 	}
 
-	sqlite3_bind_text(stmt, 1, config->repo_url, -1, SQLITE_STATIC);
-	sqlite3_bind_text(stmt, 2, config->game_server_base_url, -1, SQLITE_STATIC);
+	sqlite3_bind_text(stmt, 1, config->repo_url, -1, SQLITE_TRANSIENT);
+	sqlite3_bind_text(stmt, 2, config->game_server_base_url, -1, SQLITE_TRANSIENT);
 	
 	if (sqlite3_step(stmt) == SQLITE_ROW) {
 		instance_id = sqlite3_column_int(stmt, 0);

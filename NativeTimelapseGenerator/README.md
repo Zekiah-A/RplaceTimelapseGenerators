@@ -20,11 +20,12 @@ Each worker performs the following steps:
     ```c
     (DownloadJob) {
         // Inherited from WorkerJob base struct
+        .commit_id = 6900,
         .commit_hash = "401a8e16d0477bbb80c5111b5cefdca15931f8ff",
         
         // Members
         .type = DOWNLOAD_CANVAS,
-        .url = "https://raw.githubusercontent.com/rplacetk/canvas1/main/401a8e16d0477bbb80c5111b5cefdca15931f8ff/place"
+        .url = "https://raw.githubusercontent.com/rplacetk/canvas1/401a8e16d0477bbb80c5111b5cefdca15931f8ff/place"
     }
     ```
 2. Download worker invokes download_canvas, which return a DownloadResult containing the following data:
@@ -36,6 +37,7 @@ Each worker performs the following steps:
         
         //  Members
         .render_job = (RenderJob) {
+            .commit_id = 6900,
             .commit_hash = "401a8e16d0477bbb80c5111b5cefdca15931f8ff",
             .type = RENDER_CANVAS,
             .canvas = (RenderJobCanvas) {
@@ -58,12 +60,15 @@ save to be produced, and a date render will cause a `DATE_RENDER` save to be pro
 
 
 ## Building and Running:
+> [!NOTE]
+> The functionality of this program has only been tested on linux. Operation on any
+> other system is unsupported and not guarenteed to work!
 
 ### Prerequisites
 
 - CMake 3.10 or higher
 - GCC
-- .NET SDK
+- BunJS
 
 ### Dependencies:
 1. This project depends on [libffcall](https://www.gnu.org/software/libffcall/). For example,

@@ -119,7 +119,7 @@ struct image_result generate_canvas_control_image(int width, int height, uint32_
 	struct image_result result = { .error = RENDER_ERROR_NONE, .error_msg = NULL };
 	if (width == 0 || height == 0) {
 		result.error = RENDER_FAIL_DRAW;
-		result.error_msg = strdup("Canvas width or height was zero");
+		result.error_msg = strdup("Placers width or height was zero");
 		return result;
 	}
 
@@ -162,14 +162,14 @@ struct image_result generate_canvas_control_image(int width, int height, uint32_
 			int index = y * width + x;
 			uint32_t user_int_id = placers[index];
 
-			Placer top_placer;
+			Placer top_placer = { 0 };
 			for (int i = 0; i < top_placers_size; i++) {
 				if (top_placers[i].int_id == user_int_id) {
 					top_placer = top_placers[i];
 				}
 			}
 
-			for (int p = 0; p < sizeof(Colour); p++) { // r g b colour components
+			for (size_t p = 0; p < sizeof(Colour); p++) { // r g b colour components
 				row_pointers[y][sizeof(Colour) * x + p] = top_placer.colour.channels[p];
 			}
 		}
@@ -299,7 +299,7 @@ struct image_result generate_canvas_image(int width, int height, uint8_t* board,
 	};
 	if (width == 0 || height == 0) {
 		result.error = RENDER_FAIL_DRAW;
-		result.error_msg = strdup("Canvas width or height was zero");
+		result.error_msg = strdup("Board width or height was zero");
 		return result;
 	}
 
@@ -374,7 +374,7 @@ struct image_result generate_canvas_image(int width, int height, uint8_t* board,
 
 RenderResult render(RenderJob job)
 {
-	SaveJobType save_type = -1;
+	SaveJobType save_type = { 0};
 	struct image_result image = { 0 };
 
 	switch (job.type) {
@@ -385,6 +385,7 @@ RenderResult render(RenderJob job)
 				return (RenderResult) { .render_error = image.error, .error_msg = image.error_msg };
 			}
 			save_type = SAVE_CANVAS_RENDER;
+			break;
 		}
 		case RENDER_DATE: {
 			image = generate_date_image(job.date, 0);
@@ -392,6 +393,7 @@ RenderResult render(RenderJob job)
 				return (RenderResult) { .render_error = image.error, .error_msg = image.error_msg };
 			}
 			save_type = SAVE_DATE_RENDER;
+			break;
 		}
 		case RENDER_TOP_PLACERS: {
 			image = generate_top_placers_image(
@@ -400,6 +402,7 @@ RenderResult render(RenderJob job)
 				return (RenderResult) { .render_error = image.error, .error_msg = image.error_msg };
 			}
 			save_type = SAVE_TOP_PLACERS_RENDER;
+			break;
 		}
 		case RENDER_CANVAS_CONTROL: {
 			image = generate_canvas_control_image(job.canvas_control.width, job.canvas_control.height,
@@ -408,6 +411,7 @@ RenderResult render(RenderJob job)
 				return (RenderResult) { .render_error = image.error, .error_msg = image.error_msg };
 			}
 			save_type = SAVE_CANVAS_CONTROL_RENDER;
+			break;
 		}
 		default: {
 			return (RenderResult) { .render_error = RENDER_FAIL_TYPE, .error_msg = strdup("Invalid render job type") };
@@ -420,9 +424,11 @@ RenderResult render(RenderJob job)
 		.error_msg = NULL,
 		// Members
 		.save_job = {
+			// Inherited from WorkerJob
+			.commit_id = job.commit_id,
 			.commit_hash = job.commit_hash,
 			.date = job.date,
-
+			// Members
 			.type = save_type,
 			.data = image.data,
 			.size = image.size

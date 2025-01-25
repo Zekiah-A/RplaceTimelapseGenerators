@@ -6,7 +6,7 @@
 #include "console.h"
 #include "memory_utils.h"
 
-void init_stack(Stack* stack, size_t item_size, int default_size)
+void init_stack(Stack* stack, size_t item_size, ssize_t default_size)
 {
 	stack->items = malloc(item_size * default_size);
 	stack->item_size = item_size;
@@ -22,10 +22,10 @@ int push_stack(Stack* stack, void* item)
 
 	// Resize if the stack is full
 	if (stack->top >= stack->max_size - 1) {
-		size_t new_size = stack->max_size * 2; // Double the size
+		ssize_t new_size = stack->max_size * 2; // Double the size
 		void* new_items = realloc(stack->items, new_size * stack->item_size);
 		if (!new_items) {
-			log_message(LOG_ERROR, "Failed to resize stack\n");
+			log_message(LOG_ERROR, "Failed to resize stack");
 			pthread_mutex_unlock(&stack->mutex);
 			return 1;
 		}

@@ -1,8 +1,11 @@
 #pragma once
 #include <avcall.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
+
+#define NOSANITIZE __attribute__((no_sanitize("address", "undefined")))
 
 #define AUTOFREE __attribute__((cleanup(defer_free)))
 __attribute__((always_inline)) inline void defer_free(void *autofree_var) {
@@ -18,12 +21,12 @@ __attribute__((always_inline)) inline void defer_free(void *autofree_var) {
 typedef struct stack {
 	void* items;
 	size_t item_size;
-	unsigned long top;
-	size_t max_size;
+	long top;
+	ssize_t max_size;
 	pthread_mutex_t mutex;
 	bool replenished;
 } Stack;
-void init_stack(Stack* stack, size_t item_size, int max_size);
+void init_stack(Stack* stack, size_t item_size, ssize_t max_size);
 int push_stack(Stack* stack, void* item);
 bool pop_stack(Stack* stack, void* item);
 void free_stack(Stack* stack);

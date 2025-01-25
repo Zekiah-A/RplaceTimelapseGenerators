@@ -26,7 +26,7 @@ typedef struct config {
 	const char* download_base_url;
 	const char* game_server_base_url;
 	const char* commit_hashes_file_name;
-	int max_top_placers;
+	size_t max_top_placers;
 } Config;
 
 // Generic thread data for each worker
@@ -81,8 +81,6 @@ void remove_render_worker();
 void add_save_worker();
 // STRICT: Call on main thread only - POST
 void remove_save_worker();
-// STRICT: Call on main thread only - POST
-void collect_backup_stats();
 
 
 // BETTER: Call on main thread but shouldn't cause issues otherwise

@@ -55,7 +55,7 @@ volatile sig_atomic_t repl_keep_running = true;
 volatile bool socket_keep_running = true;
 
 // Called by UI therad, must pass back to main thread
-void ui_start_generation(Config config)
+NOSANITIZE void ui_start_generation(Config config)
 {
 	av_alist start_alist;
 	av_start_void(start_alist, &start_generation);
@@ -536,11 +536,11 @@ void parse_command(char* input)
 	}
 
 	if (strcmp(command, "start_generation") == 0) {
-		char* repo_url = strtok_r(NULL, " ", &saveptr);
-		char* download_base_url = strtok_r(NULL, " ", &saveptr);
-		char* game_server_base_url = strtok_r(NULL, " ", &saveptr);
-		char* commit_hashes_file_name = strtok_r(NULL, " ", &saveptr);
-		char* max_top_placers_str = strtok_r(NULL, " ", &saveptr);
+		char* repo_url = strdup(strtok_r(NULL, " ", &saveptr));
+		char* download_base_url = strdup(strtok_r(NULL, " ", &saveptr));
+		char* game_server_base_url = strdup(strtok_r(NULL, " ", &saveptr));
+		char* commit_hashes_file_name = strdup(strtok_r(NULL, " ", &saveptr));
+		char* max_top_placers_str = strdup(strtok_r(NULL, " ", &saveptr));
 		int max_top_placers = atoi(max_top_placers_str);
 		if (repo_url && download_base_url && commit_hashes_file_name && game_server_base_url) {
 			Config config = (Config) {
@@ -560,8 +560,8 @@ void parse_command(char* input)
 		ui_stop_generation();
 	}
 	else if (strcmp(command, "add_worker") == 0) {
-		char* worker_type_str = strtok(NULL, " ");
-		char* add_str = strtok(NULL, " ");
+		char* worker_type_str = strdup(strtok(NULL, " "));
+		char* add_str = strdup(strtok(NULL, " "));
 		if (worker_type_str && add_str) {
 			int worker_type = atoi(worker_type_str);
 			int add = atoi(add_str);
@@ -572,8 +572,8 @@ void parse_command(char* input)
 		}
 	}
 	else if (strcmp(command, "remove_worker") == 0) {
-		char* worker_type_str = strtok(NULL, " ");
-		char* remove_str = strtok(NULL, " ");
+		char* worker_type_str = strdup(strtok(NULL, " "));
+		char* remove_str = strdup(strtok(NULL, " "));
 		if (worker_type_str && remove_str) {
 			int worker_type = atoi(worker_type_str);
 			int remove = atoi(remove_str);

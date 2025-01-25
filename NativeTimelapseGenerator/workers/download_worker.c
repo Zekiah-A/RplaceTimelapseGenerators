@@ -1,5 +1,4 @@
 #include <avcall.h>
-#include <cstdint>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -41,7 +40,12 @@ Colour colour_hash(const char* text)
 		hash = (hash * 31 + (unsigned char)(*text)) & 0xFFFFFFFF;
 		text++;
 	}
-	return (Colour) { .value = hash };
+	return (Colour) {
+		.r = (hash >> 24) & 0xFF,
+		.g = (hash >> 16) & 0xFF,
+		.b = (hash >> 8) & 0xFF,
+		.a = hash & 0xFF
+	};
 }
 
 size_t fetch_memory_callback(void* contents, size_t size, size_t nmemb, void* userp)
@@ -291,13 +295,34 @@ DownloadResult* download(const WorkerInfo* worker_info, DownloadJob job)
 			}
 
 			DownloadResult* results = NULL;
-			DownloadResult result = {
+			DownloadResult canvas_save_result = {
 				// Inherited from WorkerResult
 				.download_error = DOWNLOAD_ERROR_NONE,
 				.error_msg = NULL,
 				// Members
+				.job_type = JOB_TYPE_SAVE,
+				.save_job = {
+					// Inherited from WorkerJob
+					.commit_id = job.commit_id,
+					.commit_hash = job.commit_hash,
+					.date = job.date,
+					// Members
+					.type = SAVE_CANVAS_DOWNLOAD,
+					.data = canvas_data.memory,
+					.size = canvas_data.size
+				}
+			};
+			arrput(results, canvas_save_result);
+
+			DownloadResult canvas_render_result = {
+				// Inherited from WorkerResult
+				.download_error = DOWNLOAD_ERROR_NONE,
+				.error_msg = NULL,
+				// Members
+				.job_type = JOB_TYPE_RENDER,
 				.render_job = {
 					// Inherited from WorkerJob
+					.commit_id = job.commit_id,
 					.commit_hash = job.commit_hash,
 					.date = job.date,
 					// Members
@@ -312,7 +337,7 @@ DownloadResult* download(const WorkerInfo* worker_info, DownloadJob job)
 					}
 				}
 			};
-			arrput(results, result);
+			arrput(results, canvas_render_result);
 			return results;
 		}
 		case DOWNLOAD_PLACERS: {
@@ -328,17 +353,41 @@ DownloadResult* download(const WorkerInfo* worker_info, DownloadJob job)
 				return results;
 			}
 
+			uint32_t* placers = (uint32_t*)(void*) placers_data.memory;
+			size_t placers_size = placers_data.size / sizeof(uint32_t);	
+
 			DownloadResult* results = NULL;
-			struct top_placers top_placers = get_top_placers(worker_info, (uint32_t*) placers_data.memory,
-				placers_data.size, config->max_top_placers);
+			struct top_placers top_placers = get_top_placers(worker_info, placers,
+				placers_size, config->max_top_placers);
+
+			DownloadResult placers_save_result = {
+				// Inherited from WorkerResult
+				.download_error = DOWNLOAD_ERROR_NONE,
+				.error_msg = NULL,
+				// Members
+				.job_type = JOB_TYPE_SAVE,
+				.save_job = {
+					// Inherited from WorkerJob
+					.commit_id = job.commit_id,
+					.commit_hash = job.commit_hash,
+					.date = job.date,
+					// Members
+					.type = SAVE_PLACERS_DOWNLOAD,
+					.data = placers_data.memory,
+					.size = placers_data.size
+				}
+			};
+			arrput(results, placers_save_result);
 
 			DownloadResult top_placers_result = {
 				// Inherited from WorkerResult
 				.download_error = DOWNLOAD_ERROR_NONE,
 				.error_msg = NULL,
 				// Members
+				.job_type = JOB_TYPE_RENDER,
 				.render_job = {
 					// Inherited from WorkerJob
+					.commit_id = job.commit_id,
 					.commit_hash = job.commit_hash,
 					.date = job.date,
 					// Members
@@ -356,8 +405,10 @@ DownloadResult* download(const WorkerInfo* worker_info, DownloadJob job)
 				.download_error = DOWNLOAD_ERROR_NONE,
 				.error_msg = NULL,
 				// Members
+				.job_type = JOB_TYPE_RENDER,
 				.render_job = {
 					// Inherited from WorkerJob
+					.commit_id = job.commit_id,
 					.commit_hash = job.commit_hash,
 					.date = job.date,
 					// Members
@@ -369,8 +420,8 @@ DownloadResult* download(const WorkerInfo* worker_info, DownloadJob job)
 						// Members
 						.width = metadata.width,
 						.height = metadata.height,
-						.placers = (uint32_t*) placers_data.memory,
-						.placers_size = placers_data.size / sizeof(uint32_t)
+						.placers = placers,
+						.placers_size = placers_size
 					}
 				}
 			};
@@ -411,7 +462,16 @@ void* start_download_worker(void* data)
 				free(result.error_msg);
 				continue;
 			}
-			push_render_stack(result.render_job);
+
+			if (result.job_type == JOB_TYPE_RENDER) {
+				push_render_stack(result.render_job);
+			}
+			else if (result.job_type == JOB_TYPE_SAVE) {
+				push_save_stack(result.save_job);
+			}
+			else {
+				log_message(LOG_ERROR, LOG_HEADER"Invalid job type %d", worker_info->worker_id, result.job_type);
+			}
 		}
 		arrfree(results);
 	}

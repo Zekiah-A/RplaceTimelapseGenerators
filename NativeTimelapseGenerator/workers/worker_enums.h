@@ -18,6 +18,8 @@ typedef enum download_error {
 
 typedef enum save_error {
 	SAVE_ERROR_NONE = 0,
-	SAVE_ERROR_FAIL = 1,
-	SAVE_FAIL_TYPE = 2
+	SAVE_ERROR_DATETIME = 1,
+	SAVE_ERROR_FILESYSTEM = 2,
+	SAVE_ERROR_DATABASE = 3,
+	SAVE_FAIL_TYPE = 4
 } SaveError;
