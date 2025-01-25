@@ -9,7 +9,7 @@ typedef enum log_type {
 } LogType;
 
 void update_worker_stats(WorkerType worker_type, int count);
-void update_backups_stats(int backups_total, float backups_per_second, CommitInfo current_info);
+void update_save_stats(int completed_saves, float saves_per_second, SaveResult* save_results);
 void log_message(LogType type, const char* format, ...);
 void start_console();
 void stop_console();

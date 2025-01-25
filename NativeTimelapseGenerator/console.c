@@ -1,8 +1,10 @@
 #include "lib/libnanobuf/buf_writer.h"
 #include "lib/libnanobuf/nanobuf_defs.h"
+#include "workers/worker_structs.h"
 #include <linux/limits.h>
 #include <pthread.h>
 #include <stdarg.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #define _GNU_SOURCE
@@ -32,7 +34,8 @@ static pthread_mutex_t event_sockets_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 typedef enum event_packet:uint8_t {
 	EVENT_PACKET_LOG_MESSAGE = 0,
-	EVENT_PACKET_WORKERS_INFO = 1
+	EVENT_PACKET_WORKERS_INFO = 1,
+	EVENT_PACKET_SAVE_STATUS = 2
 } EventPacket;
 
 typedef enum control_packet:uint8_t {
@@ -223,23 +226,23 @@ coroutine void ws_listen(int socket)
 		}
 
 		consecutive_errors = 0;
-		BufReader* packet = br_from_ptr(&buf, size, NULL);
-		ControlPacket type = br_u8(packet);
+		BufReader packet = br_from_ptr(&buf, size, NULL);
+		ControlPacket type = br_u8(&packet);
 		switch (type) {
 			case CONTROL_PACKET_START: {
 				Config config = { 0 };
 				// Nullable
-				char* repo_url_str = nb_to_cstr(br_str(packet));
+				char* repo_url_str = nb_to_cstr(br_str(&packet));
 				config.repo_url =  (repo_url_str && strlen(repo_url_str) > 0) >  0 ? repo_url_str : NULL;
 				
-				config.download_base_url = nb_to_cstr(br_str(packet));
-				config.game_server_base_url = nb_to_cstr(br_str(packet));
+				config.download_base_url = nb_to_cstr(br_str(&packet));
+				config.game_server_base_url = nb_to_cstr(br_str(&packet));
 				
 				// Nullable
-				char* commit_hashes_str = nb_to_cstr(br_str(packet));
+				char* commit_hashes_str = nb_to_cstr(br_str(&packet));
 				config.commit_hashes_file_name = (commit_hashes_str && strlen(commit_hashes_str) > 0) ? commit_hashes_str : NULL;
 				
-				config.max_top_placers = br_u32(packet);
+				config.max_top_placers = br_u32(&packet);
 				ui_start_generation(config);
 				break;
 			}
@@ -248,14 +251,14 @@ coroutine void ws_listen(int socket)
 				break;
 			}
 			case CONTROL_PACKET_ADD_WORKER: {
-				WorkerType type = br_u8(packet);
-				int count = br_u8(packet);
+				WorkerType type = br_u8(&packet);
+				int count = br_u8(&packet);
 				ui_add_worker(type, count);
 				break;
 			}
 			case CONTROL_PACKET_REMOVE_WORKER: {
-				WorkerType type = br_u8(packet);
-				int count = br_u8(packet);
+				WorkerType type = br_u8(&packet);
+				int count = br_u8(&packet);
 				ui_remove_worker(type, count);
 				break;
 			}
@@ -289,24 +292,22 @@ coroutine void ws_connect(int socket)
 	log_message(LOG_INFO, "Event socket client connected!");
 	for (int i = 0; i < arrlen(log_messages); i++) {
 		LogMessage log_message = log_messages[i];
-		BufWriter* packet = bw_create_default();
-		bw_u8(packet, EVENT_PACKET_LOG_MESSAGE);
-		bw_u8(packet, log_message.type);
-		bw_u64(packet, log_message.date);
-		bw_str(packet, log_message.message);
-		ws_send_packet(socket, packet);
-		bw_destroy(packet, true);
+		bw_stackfree(packet) = bw_create_default();
+		bw_u8(&packet, EVENT_PACKET_LOG_MESSAGE);
+		bw_u8(&packet, log_message.type);
+		bw_u64(&packet, log_message.date);
+		bw_str(&packet, log_message.message);
+		ws_send_packet(socket, &packet);
 	}
 
 	// Send all workers info
-	BufWriter* packet = bw_create_default();
-	bw_u8(packet, EVENT_PACKET_WORKERS_INFO);
-	bw_u8(packet, 3); // workers count
-	write_worker_infos(packet, WORKER_TYPE_DOWNLOAD);
-	write_worker_infos(packet, WORKER_TYPE_RENDER);
-	write_worker_infos(packet, WORKER_TYPE_SAVE);
-	ws_send_packet(socket, packet);
-	bw_destroy(packet, true);
+	bw_stackfree(packet) = bw_create_default();
+	bw_u8(&packet, EVENT_PACKET_WORKERS_INFO);
+	bw_u8(&packet, 3); // workers count
+	write_worker_infos(&packet, WORKER_TYPE_DOWNLOAD);
+	write_worker_infos(&packet, WORKER_TYPE_RENDER);
+	write_worker_infos(&packet, WORKER_TYPE_SAVE);
+	ws_send_packet(socket, &packet);
 }
 
 coroutine void ws_disconnect(int socket)
@@ -678,13 +679,12 @@ void log_message(LogType type, const char* format, ...)
 	arrput(log_messages, log_message);
 
 	// Send websocket update
-	BufWriter* packet = bw_create_default();
-	bw_u8(packet, EVENT_PACKET_LOG_MESSAGE);
-	bw_u8(packet, type);
-	bw_u64(packet, date);
-	bw_str(packet, buffer);
-	ws_send_all_packet(packet);
-	bw_destroy(packet, true);
+	bw_stackfree(packet) = bw_create_default();
+	bw_u8(&packet, EVENT_PACKET_LOG_MESSAGE);
+	bw_u8(&packet, type);
+	bw_u64(&packet, date);
+	bw_str(&packet, buffer);
+	ws_send_all_packet(&packet);
 
 	// Print to console
 	if (type == LOG_INFO) {
@@ -707,11 +707,72 @@ void update_worker_stats(WorkerType worker_type, int count)
 	puts(print);
 }
 
-void update_backups_stats(int backups_total, float backups_per_second, CommitInfo current_info)
+void update_save_stats(int completed_saves, float saves_per_second, SaveResult* save_results)
 {
-	// TODO: Send websocket update
+	struct { SaveJobType key; SaveResult* value; }* jobs_by_type = NULL;
+	for (int i = 0; i < arrlen(save_results); i++) {
+		SaveResult* save = &save_results[i];
 
+		SaveResult* type_jobs = (SaveResult*) hmgetp_null(jobs_by_type, save->save_type);
+		if (!type_jobs) {
+			// Creare new array in hashmap if not found
+			SaveResult* new_jobs = NULL;
+			hmput(jobs_by_type, save->save_type, new_jobs);
+			type_jobs = (SaveResult*) hmgetp_null(jobs_by_type, save->save_type);
+		}
+
+		arrput(type_jobs, *save);
+	}
+
+	bw_stackfree(packet) = bw_create_default();
+	bw_u8(&packet, EVENT_PACKET_SAVE_STATUS);
+	bw_u32(&packet, (uint32_t) completed_saves);
+	bw_u32(&packet, *(uint32_t*) &saves_per_second); // TODO: Properly implement float in nanobuf
+	ssize_t saves_types_count = hmlen(jobs_by_type);
+	bw_u8(&packet, (uint8_t) saves_types_count);
+	for (int i = 0; i < saves_types_count; i++) {
+		SaveJobType save_type = jobs_by_type[i].key;
+		SaveResult* type_jobs = jobs_by_type[i].value;
+		bw_u8(&packet, save_type);
+
+		// Process jobs of this type
+		int save_count = (int) arrlen(type_jobs);
+		if (save_count < 0) {
+			continue;
+		}
+		bw_u32(&packet, (uint32_t) save_count);
+		for (int j = 0; j < save_count; j++) {
+			SaveResult* job = &type_jobs[j];
+			bw_u32(&packet, (uint32_t) job->commit_id);
+			bw_str(&packet, job->commit_hash);
+			bw_u64(&packet, (uint64_t) job->date);
+			bw_str(&packet, job->save_path);
+		}
+	}
+	ws_send_all_packet(&packet);
+
+	// Epic console output
 	AUTOFREE char* print = NULL;
-	asprintf(&print, "\x1b[36mbackups_stats: generated: %d per second: %f processing: %li\x1b[0m", backups_total, backups_per_second, current_info.date);
+	asprintf(&print, 
+		"\x1b[1;32m[save_stats]\x1b[0m\n"
+		"\x1b[36m═════════════════════════════════════════════\x1b[0m\n"
+		"📅 Completed Saves: \x1b[1;32m%d\x1b[0m\n"
+		"✨ Saves Per Second: \x1b[1;33m%.2f\x1b[0m\n"
+		"📂 Save Types Processed: \x1b[1;34m%li\x1b[0m\n"
+		"\x1b[36m═════════════════════════════════════════════\x1b[0m",
+		saves_per_second, saves_types_count
+	);
 	puts(print);
+
+	for (int i = 0; i < saves_types_count; i++) {
+		SaveJobType save_type = jobs_by_type[i].key;
+		SaveResult* type_jobs = jobs_by_type[i].value;
+		AUTOFREE char* type_print = NULL;
+		asprintf(&type_print,
+			"\x1b[1;35m  → Save Type: \x1b[1;36m%d\x1b[0m\n"
+			"    Jobs Processed: \x1b[1;33m%d\x1b[0m",
+			save_type, (int) arrlen(type_jobs)
+		);
+		puts(type_print);
+	}
 }

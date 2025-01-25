@@ -78,38 +78,44 @@ document.addEventListener("DOMContentLoaded", async () => {
 
 	const layout: LayoutConfig = {
 		root: {
-			type: "column",
+			type: "row",
 			content: [
 				{
-					type: "row",
+					type: "column",
 					content: [
 						{
-							title: "Main Controls",
-							type: "component",
-							componentType: "main-controls",
-							reorderEnabled: true
+							type: "row",
+							content: [
+								{
+									title: "Main Controls",
+									type: "component",
+									componentType: "main-controls",
+									reorderEnabled: true
+								},
+								{
+									title: "Worker Management",
+									type: "component",
+									componentType: "worker-manager",
+									reorderEnabled: true
+								},
+							]
 						},
 						{
-							title: "Worker Management",
+							title: "Logs",
 							type: "component",
-							componentType: "worker-manager",
-							reorderEnabled: true
-						},
-						{
-							title: "Backups",
-							type: "component",
-							componentType: "backups-panel",
-							reorderEnabled: true
-						},
-					]
+							componentType: "logs-panel",
+							reorderEnabled: true,
+						}
+					]			
 				},
 				{
-					title: "Logs",
+					title: "Backups",
 					type: "component",
-					componentType: "logs-panel",
+					componentType: "backups-panel",
 					reorderEnabled: true,
+					size: "20%"
 				}
-			],
+			]
 		},
 		
 	};

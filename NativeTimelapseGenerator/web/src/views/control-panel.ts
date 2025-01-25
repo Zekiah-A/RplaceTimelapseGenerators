@@ -9,7 +9,8 @@ import "./logs-list-view.ts";
 
 export enum EventPacket {
 	LogMessage = 0,
-	WorkerStatus = 1
+	WorkerStatus = 1,
+	SaveStatus = 2,
 };
 
 export enum ControlPacket {

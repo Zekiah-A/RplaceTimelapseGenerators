@@ -44,9 +44,12 @@ WorkerInfo** download_workers = NULL; // stb array
 WorkerInfo** render_workers = NULL; // stb array
 WorkerInfo** save_workers = NULL; // stb array
 
-time_t completed_backups_date = 0;
-int completed_backups_since = 0;
-int completed_backups = 0;
+// SAVE STATS
+time_t completed_saves_date = 0;
+int completed_saves_since = 0;
+int completed_saves = 0;
+SaveResult* save_results = NULL;
+#define SAVE_STATS_FLUSH_SECONDS 10
 
 // CONFIG
 Config _config = { 0 };
@@ -206,24 +209,31 @@ void push_save_stack(SaveJob job)
 	push_stack(&save_stack, &job);
 }
 
-void collect_backup_stats()
+// STRICT: Call on main thread
+void collect_save_stats(SaveResult save_result)
 {
-	// TODO: Implement this
-	/*time_t now = time(0);
-	float backups_per_second = ((float)(now - completed_backups_date)) / (float) completed_backups_since;
-	update_backups_stats(completed_backups, backups_per_second, *completed_canvas_info);
-	completed_backups_since = 0;
-	completed_backups_date = now;*/
+	time_t now = time(0);
+	if (now - completed_saves_date < SAVE_STATS_FLUSH_SECONDS) {
+		arrput(save_results, save_result);
+		return;
+	}
+
+	float saves_per_second = ((float)(now - completed_saves_date)) / (float) completed_saves_since;
+	completed_saves_since = 0;
+	completed_saves_date = now;
+	update_save_stats(completed_saves, saves_per_second, save_results);
+	arrclear(save_results);
 }
 
 // Called by save worker
 void push_completed(SaveResult result)
 {
-	// TODO: Implement this
-	completed_backups++;
-	completed_backups_since++;
+	completed_saves++;
+	completed_saves_since++;
 	av_alist backup_alist;
-	av_start_void(backup_alist, &collect_backup_stats);
+	av_struct(backup_alist, SaveResult, result);
+	av_start_void(backup_alist, &collect_save_stats);
+
 	main_thread_post(backup_alist);
 }
 
@@ -735,7 +745,7 @@ void safe_segfault_exit(int sig_num)
 void start_main_thread(bool start, Config config)
 {
 	signal(SIGSEGV, safe_segfault_exit);
-	completed_backups_date = time(0);
+	completed_saves_date = time(0);
 
 	init_work_queue(&main_thread_work_queue, DEFAULT_WORK_QUEUE_SIZE);
 	init_stack(&download_stack, sizeof(DownloadJob), DEFAULT_STACK_SIZE);

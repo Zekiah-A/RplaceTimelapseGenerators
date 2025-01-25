@@ -94,13 +94,13 @@ SaveResult save(SaveJob job)
 		// Inherited from WorkerResult
 		.save_error = SAVE_ERROR_NONE,
 		.error_msg = NULL,
+		// Inherited from CommitInfo
+		.commit_id = job.commit_id,
+		.commit_hash = job.commit_hash,
+		.date = job.date,
 		// Members
-		.stats_job = {
-			.commit_id = job.commit_id,
-			.commit_hash = job.commit_hash,
-			.date = job.date,
-			.save_path = save_path
-		}
+		.save_type = job.type,
+		.save_path = save_path
 	};
 	return result;
 }

@@ -62,11 +62,6 @@ typedef struct worker_job {
 } WorkerJob;
 
 // Main thread
-typedef struct stats_job {
-	WorkerJob;
-	char* save_path;
-} StatsJob;
-
 typedef enum job_type {
 	JOB_TYPE_DOWNLOAD = 1,
 	JOB_TYPE_RENDER = 2,
@@ -74,7 +69,7 @@ typedef enum job_type {
 } JobType;
 
 // Save worker
-typedef enum save_job_type {
+typedef enum save_job_type:uint8_t {
 	SAVE_CANVAS_DOWNLOAD = 1,
 	SAVE_CANVAS_RENDER = 2,
 	SAVE_DATE_RENDER = 3,
@@ -92,7 +87,9 @@ typedef struct save_job {
 
 typedef struct save_result {
 	WorkerResult;
-	StatsJob stats_job;
+	CommitInfo;
+	SaveJobType save_type;
+	char* save_path;
 } SaveResult;
 
 // Render worker

@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <stdbool.h>
 
+#define arrclear(a) ((a) ? stbds_header(a)->length = 0 : 0)
+
 #define NOSANITIZE __attribute__((no_sanitize("address", "undefined")))
 
 #define AUTOFREE __attribute__((cleanup(defer_free)))
