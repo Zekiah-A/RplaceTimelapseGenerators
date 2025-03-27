@@ -75,41 +75,34 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
 		-Wsign-conversion
 		-Wconversion
 		-Wno-unused-parameter
-		# Sanitisers
-		-fsanitize=address,undefined # ,leak
-		-fno-omit-frame-pointer
-		-fno-sanitize-address-use-after-scope
-		#-fstack-protector-strong
-		# Extra
-		-D_FORTIFY_SOURCE=2
 	)
 
-	if(ENABLE_ASAN)
-		message(STATUS "Enabling ASan/UBSan (risky with ffcall)")
-		target_compile_options(${PROJECT_NAME} PRIVATE
-			-fsanitize=address,undefined
-			-fno-omit-frame-pointer
-			-fno-sanitize-address-use-after-scope
-		)
-		target_link_options(${PROJECT_NAME} PRIVATE
-			-fsanitize=address,undefined
-		)
-
-		# Special handling for ffcall
-		#target_compile_options(${PROJECT_NAME} PRIVATE
-		#	-fno-sanitize=function
-		#)
-
-		# Add suppression file support
-		if(EXISTS "${CMAKE_SOURCE_DIR}/asan.supp")
-			set(ASAN_OPTIONS "suppressions=${CMAKE_SOURCE_DIR}/asan.supp:detect_stack_use_after_return=0")
-			set(UBSAN_OPTIONS "suppressions=${CMAKE_SOURCE_DIR}/ubsan.supp:print_stacktrace=1")
-			set_property(TARGET ${PROJECT_NAME} APPEND PROPERTY ENVIRONMENT 
-				"ASAN_OPTIONS=${ASAN_OPTIONS}"
-				"UBSAN_OPTIONS=${UBSAN_OPTIONS}"
-			)
-		endif()
-	endif()
+	#if(ENABLE_ASAN)
+	#	message(STATUS "Enabling ASan/UBSan (risky with ffcall)")
+	#	target_compile_options(${PROJECT_NAME} PRIVATE
+	#		-fsanitize=address,undefined
+	#		-fno-omit-frame-pointer
+	#		-fno-sanitize-address-use-after-scope
+	#	)
+	#	target_link_options(${PROJECT_NAME} PRIVATE
+	#		-fsanitize=address,undefined
+	#	)
+	#
+	#	# Special handling for ffcall
+	#	#target_compile_options(${PROJECT_NAME} PRIVATE
+	#	#	-fno-sanitize=function
+	#	#)
+	#
+	#	# Add suppression file support
+	#	if(EXISTS "${CMAKE_SOURCE_DIR}/asan.supp")
+	#		set(ASAN_OPTIONS "suppressions=${CMAKE_SOURCE_DIR}/asan.supp:detect_stack_use_after_return=0")
+	#		set(UBSAN_OPTIONS "suppressions=${CMAKE_SOURCE_DIR}/ubsan.supp:print_stacktrace=1")
+	#		set_property(TARGET ${PROJECT_NAME} APPEND PROPERTY ENVIRONMENT 
+	#			"ASAN_OPTIONS=${ASAN_OPTIONS}"
+	#			"UBSAN_OPTIONS=${UBSAN_OPTIONS}"
+	#		)
+	#	endif()
+	#endif()
 endif()
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
 	target_compile_options(${PROJECT_NAME} PRIVATE

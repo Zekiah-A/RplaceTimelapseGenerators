@@ -221,7 +221,8 @@ void collect_save_stats(SaveResult save_result)
 	float saves_per_second = ((float)(now - completed_saves_date)) / (float) completed_saves_since;
 	completed_saves_date = now;
 	completed_saves_since = 0;
-	update_save_stats(completed_saves, saves_per_second, save_results);
+	// TODO: This method is giving endless segfaults and general weirdness - fix it
+	//update_save_stats(completed_saves, saves_per_second, save_results);
 	arrclear(save_results);
 }
 

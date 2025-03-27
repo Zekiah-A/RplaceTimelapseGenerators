@@ -81,11 +81,8 @@ void remove_render_worker();
 void add_save_worker();
 // STRICT: Call on main thread only - POST
 void remove_save_worker();
-
-
 // BETTER: Call on main thread but shouldn't cause issues otherwise
 WorkerInfo** get_workers(WorkerType type);
-
 
 // Called by download worker
 DownloadJob pop_download_stack(int worker_id);

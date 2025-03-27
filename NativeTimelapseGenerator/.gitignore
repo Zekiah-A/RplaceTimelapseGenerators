@@ -8,3 +8,4 @@ NativeTimelapseGenerator.Console.so.dbg
 logs.txt
 timelapse.mp4
 build/
+sanity-tests/

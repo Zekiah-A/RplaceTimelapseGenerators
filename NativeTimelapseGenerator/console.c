@@ -32,6 +32,8 @@ void (*remove_funcs[3])() = { remove_download_worker, remove_render_worker, remo
 int* event_sockets = NULL;
 static pthread_mutex_t event_sockets_mutex = PTHREAD_MUTEX_INITIALIZER;
 
+#define LOG_HEADER "[console] "
+
 typedef enum event_packet:uint8_t {
 	EVENT_PACKET_LOG_MESSAGE = 0,
 	EVENT_PACKET_WORKERS_INFO = 1,
@@ -711,8 +713,8 @@ void update_worker_stats(WorkerType worker_type, int count)
 }
 
 typedef struct save_jobs_entry {
-    SaveJobType key; // save job type
-    SaveResult* value; // array of save results
+	SaveJobType key; // save job type
+	SaveResult* value; // array of save results
 } SaveJobsEntry;
 
 void update_save_stats(int completed_saves, float saves_per_second, SaveResult* save_results)
@@ -740,6 +742,10 @@ void update_save_stats(int completed_saves, float saves_per_second, SaveResult* 
 	bw_u8(&packet, (uint8_t) saves_types_count);
 	for (int i = 0; i < saves_types_count; i++) {
 		SaveJobType save_type = jobs_by_type[i].key;
+		if (save_type == 0) {
+			log_message(LOG_ERROR, LOG_HEADER"Failed to write save: Invalid save type: (0)");
+			continue;
+		}
 		SaveResult* type_jobs = jobs_by_type[i].value;
 		bw_u8(&packet, save_type);
 
@@ -777,6 +783,15 @@ void update_save_stats(int completed_saves, float saves_per_second, SaveResult* 
 		);
 		puts(type_print);
 	}
+
+	// Free inner arrays
+	for (int i = 0; i < hmlen(jobs_by_type); i++) {
+		if (jobs_by_type[i].key != 0) { // Skip empty buckets
+			arrfree(jobs_by_type[i].value);
+		}
+	}
+	// Free the hash map itself
+	hmfree(jobs_by_type);
 }
 
 void update_start_status(bool started)
