@@ -215,10 +215,10 @@ typedef struct placer_counts_entry {
 
 struct top_placers get_top_placers(const WorkerInfo* worker_info, UserIntId* placers, size_t placers_size, size_t max_count)
 {
-    if (!placers || placers_size == 0 || max_count == 0) {
+	if (!placers || placers_size == 0 || max_count == 0) {
 		struct top_placers result = { 0 };
-        return result;
-    }
+		return result;
+	}
 
 	// Count placer occurrances
 	PlacerCountsEntry* placer_counts_map = NULL;
@@ -244,48 +244,53 @@ struct top_placers get_top_placers(const WorkerInfo* worker_info, UserIntId* pla
 		uint32_t placed = placer_counts_map[i].value;
 
 		// Find insertion position
-        size_t insert_pos = current_count;
-        while (insert_pos > 0 && placed > top_placers[insert_pos-1].pixels_placed) {
-            insert_pos--;
-        }
+		size_t insert_pos = current_count;
+		while (insert_pos > 0 && placed > top_placers[insert_pos-1].pixels_placed) {
+			insert_pos--;
+		}
 
-        if (insert_pos < max_count) {
-            User* user = get_user(worker_info, user_int_id);
-            if (!user) {
+		if (insert_pos < max_count) {
+			User* user = get_user(worker_info, user_int_id);
+			if (!user) {
 				log_message(LOG_ERROR, LOG_HEADER"Failed to get user with int id %lu when calculating top placers",
 					worker_info->worker_id, user_int_id);
 				continue;
 			}
 
-            // Make room if array isn't full yet
-            if (current_count < max_count) {
-                current_count++;
-            }
+			// Make room if array isn't full yet
+			if (current_count < max_count) {
+				current_count++;
+			}
 
-            // Shift elements up to make space
-            if (insert_pos < current_count - 1) {
-                memmove(&top_placers[insert_pos+1], 
-                       &top_placers[insert_pos],
-                       (current_count - insert_pos - 1) * sizeof(Placer));
-            }
+			// Shift elements up to make space
+			if (insert_pos < current_count - 1) {
+				memmove(&top_placers[insert_pos+1], 
+					   &top_placers[insert_pos],
+					   (current_count - insert_pos - 1) * sizeof(Placer));
+			}
 
-            // Insert new placer
-            top_placers[insert_pos] = (Placer){
-                .int_id = user_int_id,
-                .chat_name = user->chat_name,
-                .pixels_placed = placed,
-                .colour = colour_hash(user->chat_name)
-            };
-        }
+			// Insert new placer
+			char* colour_hash_source = user->chat_name;
+			if (colour_hash_source == NULL) {
+				asprintf(&colour_hash_source, "%d", user_int_id);
+			}
+			Placer new_placer = (Placer){
+				.int_id = user_int_id,
+				.chat_name = user->chat_name,
+				.pixels_placed = placed,
+				.colour = colour_hash(colour_hash_source)
+			};
+			top_placers[insert_pos] = new_placer;
+		}
 	}
 
 	// Shrink allocation if necessary
 	if (current_count < max_count) {
-        Placer* tmp = realloc(top_placers, current_count * sizeof(Placer));
-        if (tmp) {
+		Placer* tmp = realloc(top_placers, current_count * sizeof(Placer));
+		if (tmp) {
 			top_placers = tmp;
 		} 
-    }
+	}
 
 	hmfree(placer_counts_map);
 	struct top_placers result = { .placers = top_placers, .size = max_count };

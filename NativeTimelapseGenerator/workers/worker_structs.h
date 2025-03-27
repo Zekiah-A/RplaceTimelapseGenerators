@@ -21,7 +21,7 @@ typedef uint32_t UserIntId;
 typedef struct user {
 	UserIntId int_id;
 	// Can be null
-	const char* chat_name;
+	char* chat_name;
 	uint32_t pixels_placed;
 	uint32_t play_time_seconds;
 	time_t last_joined;
