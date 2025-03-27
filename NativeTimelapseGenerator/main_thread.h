@@ -35,6 +35,7 @@ typedef struct worker_info {
 	long worker_id;
 	pthread_t thread_id;
 	WorkerStatus status;
+	bool should_cancel; // Cancellation token
 	union
 	{
 		DownloadWorkerInstance* download_worker_instance;

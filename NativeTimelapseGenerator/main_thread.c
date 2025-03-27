@@ -40,6 +40,7 @@ Stack save_stack;
 #define DEFAULT_DOWNLOAD_WORKER_COUNT 4
 #define DEFAULT_RENDER_WORKER_COUNT 2
 #define DEFAULT_SAVE_WORKER_COUNT 1
+// TODO: Unify all workers into a hashmap of WorkerType -> WorkerInfo** for convenience
 WorkerInfo** download_workers = NULL; // stb array
 WorkerInfo** render_workers = NULL; // stb array
 WorkerInfo** save_workers = NULL; // stb array
@@ -81,6 +82,7 @@ void add_download_worker()
 	WorkerInfo* info = (WorkerInfo*) malloc(sizeof(WorkerInfo));
 	info->worker_id = arrlen(download_workers) + 1;
 	info->thread_id = 0;
+	info->should_cancel = false;
 	info->config = &_config;
 	info->download_worker_shared = &_download_worker_shared;
 	info->download_worker_instance = (DownloadWorkerInstance*) malloc(sizeof(DownloadWorkerInstance));
@@ -96,19 +98,23 @@ void remove_download_worker()
 		log_message(LOG_ERROR, LOG_HEADER"Couldn't remove download worker: download worker count <= 0");
 		return;
 	}
-
 	WorkerInfo* info = arrpop(download_workers);
-	pthread_cancel(info->thread_id);
+
+	// Trigger cancellation token & await for thread to finish (with pthread_join)
+	info->should_cancel = true;
+	pthread_join(info->thread_id, NULL);
+
+	// Free worker instance & uupdate stats
 	free(info);
 	update_worker_stats(WORKER_TYPE_DOWNLOAD, arrlen(download_workers));
 }
-
 
 void add_render_worker()
 {
 	WorkerInfo* info = (WorkerInfo*) malloc(sizeof(WorkerInfo));
 	info->worker_id = arrlen(render_workers) + 1;
 	info->thread_id = 0;
+	info->should_cancel = false;
 	info->config = &_config;
 	info->render_worker_shared = &_render_worker_shared;
 	info->render_worker_instance = (RenderWorkerInstance*) malloc(sizeof(RenderWorkerInstance));
@@ -124,9 +130,13 @@ void remove_render_worker()
 		log_message(LOG_ERROR, LOG_HEADER"Couldn't remove render worker: render worker count <= 0");
 		return;
 	}
-
 	WorkerInfo* info = arrpop(render_workers);
-	pthread_cancel(info->thread_id);
+
+	// Trigger cancellation token & await for thread to finish (with pthread_join)
+	info->should_cancel = true;
+	pthread_join(info->thread_id, NULL);
+
+	// Free worker instance & uupdate stats
 	free(info);
 	update_worker_stats(WORKER_TYPE_RENDER, arrlen(render_workers));
 }
@@ -136,6 +146,7 @@ void add_save_worker()
 	WorkerInfo* info = (WorkerInfo*) malloc(sizeof(WorkerInfo));
 	info->worker_id = arrlen(save_workers) + 1;
 	info->thread_id = 0;
+	info->should_cancel = false;
 	info->config = &_config;
 	info->save_worker_shared = &_save_worker_shared;
 	info->save_worker_instance = (SaveWorkerInstance*) malloc(sizeof(SaveWorkerInstance));
@@ -150,10 +161,15 @@ void remove_save_worker()
 	if (arrlen(save_workers) <= 0) {
 		stop_console();
 		log_message(LOG_ERROR, LOG_HEADER"Couldn't remove save worker: save worker count <= 0");
-		exit(EXIT_FAILURE);
+		return;
 	}
 	WorkerInfo* info = arrpop(save_workers);
-	pthread_cancel(info->thread_id);
+	
+	// Trigger cancellation token & await for thread to finish (with pthread_join)
+	info->should_cancel = true;
+	pthread_join(info->thread_id, NULL);
+
+	// Free worker instance & uupdate stats
 	free(info);
 	update_worker_stats(WORKER_TYPE_SAVE, arrlen(save_workers));
 }
@@ -161,9 +177,14 @@ void remove_save_worker()
 void remove_all_workers(WorkerInfo** workers)
 {
 	for (int i = 0; i < arrlen(workers); i++) {
-		WorkerInfo* worker = arrpop(workers);
-		pthread_cancel(worker->thread_id);
-		free(worker);
+		WorkerInfo* info = arrpop(workers);
+
+		// Trigger cancellation token & await for thread to finish (with pthread_join)
+		info->should_cancel = true;
+		pthread_join(info->thread_id, NULL);
+
+		// Free worker instance
+		free(info);
 	}
 }
 
@@ -179,6 +200,21 @@ WorkerInfo** get_workers(WorkerType type)
 		return save_workers;
 	}
 	return NULL;
+}
+
+void remove_download_worker_shared()
+{
+	if (_download_worker_shared.user_map) {
+		hmfree(_download_worker_shared.user_map);
+	}
+}
+
+void remove_render_worker_shared()
+{
+}
+
+void remove_save_worker_shared()
+{
 }
 
 // Post queue
@@ -716,6 +752,11 @@ void stop_generation()
 	remove_all_workers(render_workers);
 	remove_all_workers(save_workers);
 
+	// Cleanup shared worker data
+	remove_download_worker_shared();
+	remove_render_worker_shared();
+	remove_save_worker_shared();
+	
 	log_message(LOG_INFO, LOG_HEADER"Backup generation stopped.");
 }
 

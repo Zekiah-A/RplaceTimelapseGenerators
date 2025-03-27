@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <pthread.h>
 
 #include "worker_enums.h"
 #include "worker_structs.h"
@@ -104,15 +105,25 @@ SaveResult save(SaveJob job)
 	return result;
 }
 
-void* start_save_worker(void* data)
+void on_thread_exit(void* data)
 {
 	const WorkerInfo* worker_info = (const WorkerInfo*) data;
+
+	log_message(LOG_INFO, LOG_HEADER"Save worker %d exiting",
+		worker_info->worker_id, worker_info->worker_id);
+}
+
+void* start_save_worker(void* data)
+{
+	// Initialise worker / thread globals  & exit handler
+	const WorkerInfo* worker_info = (const WorkerInfo*) data;
+	pthread_cleanup_push(on_thread_exit, worker_info);
 
 	log_message(LOG_INFO, LOG_HEADER"Started save worker with thread id %d",
 		worker_info->worker_id, worker_info->thread_id);
 
 	// Enter save loop
-	while (true) {
+	while (!worker_info->should_cancel) {
 		SaveJob job = pop_save_stack(worker_info->worker_id);
 
 		SaveResult result = save(job);
@@ -125,5 +136,7 @@ void* start_save_worker(void* data)
 
 		push_completed(result);
 	}
+
+	pthread_cleanup_pop(1);
 	return NULL;
 }

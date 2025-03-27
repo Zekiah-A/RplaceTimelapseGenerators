@@ -471,16 +471,25 @@ RenderResult render(RenderJob job)
 	return result;
 }
 
+void on_thread_exit(void* data)
+{
+	const WorkerInfo* worker_info = (const WorkerInfo*) data;
+
+	log_message(LOG_INFO, LOG_HEADER"Render worker %d exiting",
+		worker_info->worker_id, worker_info->worker_id);
+}
+
 void* start_render_worker(void* data)
 {
-	// Initialise worker / thread globals
+	// Initialise worker / thread globals  & exit handler
 	const WorkerInfo* worker_info = (const WorkerInfo*) data;
+	pthread_cleanup_push(on_thread_exit, worker_info);
 
 	log_message(LOG_INFO, LOG_HEADER"Started render worker with thread id %d",
 		worker_info->worker_id, worker_info->thread_id);
 
 	// Enter render loop
-	while (true) {
+	while (!worker_info->should_cancel) {
 		RenderJob job = pop_render_stack(worker_info->worker_id);
 
 		RenderResult result = render(job);
@@ -492,5 +501,7 @@ void* start_render_worker(void* data)
 		}
 		push_save_stack(result.save_job);
 	}
+
+	pthread_cleanup_pop(1);
 	return NULL;
 }

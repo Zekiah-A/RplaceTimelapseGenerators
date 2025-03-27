@@ -4,10 +4,16 @@
 
 #include "worker_structs.h"
 
+typedef struct user_map_entry
+{
+	UserIntId key; // user_int_id
+	User* value; // Pointer to the user
+} UserMapEntry;
+
 // Shared between all download workers
 typedef struct download_worker_shared
 {
-	struct { uint32_t key; User* value; }* user_map;
+	UserMapEntry* user_map; // stb hash map
 } DownloadWorkerShared;
 
 // Instance / worker / per thread members

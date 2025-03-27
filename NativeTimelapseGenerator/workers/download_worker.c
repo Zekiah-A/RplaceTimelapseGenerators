@@ -6,6 +6,7 @@
 #include <curl/curl.h>
 #include <unistd.h>
 #include <avcall.h>
+#include <pthread.h>
 
 #include "download_worker.h"
 #include "worker_enums.h"
@@ -489,11 +490,25 @@ DownloadResult* download(const WorkerInfo* worker_info, DownloadJob job)
 	}
 }
 
+void on_thread_exit(void* data)
+{
+	const WorkerInfo* worker_info = (const WorkerInfo*) data;
+	DownloadWorkerInstance* instance = worker_info->download_worker_instance;
+
+	if (instance->curl_handle) {
+		curl_easy_cleanup(instance->curl_handle);
+		instance->curl_handle = NULL;
+	}
+	log_message(LOG_INFO, LOG_HEADER"Download worker %d exiting",
+		worker_info->worker_id, worker_info->worker_id);
+}
+
 void* start_download_worker(void* data)
 {
-	// Initialise worker / thread globals
+	// Initialise worker / thread globals & exit handler
 	const WorkerInfo* worker_info = (const WorkerInfo*) data;
-
+	pthread_cleanup_push(on_thread_exit, worker_info);
+	
 	// Initialise instance members
 	CURL* curl_handle = curl_easy_init();
 	worker_info->download_worker_instance->curl_handle = curl_handle;
@@ -502,7 +517,7 @@ void* start_download_worker(void* data)
 		worker_info->worker_id, worker_info->thread_id);
 
 	// Enter download loop
-	while (true) {
+	while (!worker_info->should_cancel) {
 		DownloadJob job = pop_download_stack(worker_info->worker_id);
 
 		DownloadResult* results = download(worker_info, job);
@@ -527,5 +542,7 @@ void* start_download_worker(void* data)
 		}
 		arrfree(results);
 	}
+
+	pthread_cleanup_pop(1);
 	return NULL;
 }
