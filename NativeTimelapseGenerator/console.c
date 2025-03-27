@@ -551,8 +551,8 @@ void parse_command(char* input)
 			Config config = (Config) {
 				repo_url,
 				download_base_url,
-				commit_hashes_file_name,
 				game_server_base_url,
+				commit_hashes_file_name,
 				max_top_placers
 			};
 			ui_start_generation(config);

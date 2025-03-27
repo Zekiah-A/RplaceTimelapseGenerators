@@ -140,7 +140,7 @@ struct image_result generate_top_placers_image(Placer* top_placers, size_t top_p
 }
 
 typedef struct {
-	uint32_t key;	// int_id
+	UserIntId key;	// int_id
 	Placer*  value;	// Pointer to the placer
 } PlacerLookupEntry;
 
@@ -188,7 +188,7 @@ struct image_result generate_canvas_control_image(int width, int height, uint32_
 	// Create a lookup table for top placers
 	PlacerLookupEntry* placers_lookup_map = NULL;
 	for (int i = 0; i < top_placers_size; i++) {
-		uint32_t int_id = top_placers[i].int_id;
+		UserIntId int_id = top_placers[i].int_id;
 		hmput(placers_lookup_map, int_id, &top_placers[i]);
 	}
 
@@ -197,7 +197,7 @@ struct image_result generate_canvas_control_image(int width, int height, uint32_
 		row_pointers[y] = (png_bytep) calloc(sizeof(Colour) * width, sizeof(png_byte));
 		for (int x = 0; x < width; x++) {
 			int index = y * width + x;
-			uint32_t user_int_id = placers[index];
+			UserIntId user_int_id = placers[index];
 			Placer* top_placer = hmget(placers_lookup_map, user_int_id);
 			if (top_placer == NULL) {
 				memset(&row_pointers[y][sizeof(Colour) * x], 0, sizeof(Colour));

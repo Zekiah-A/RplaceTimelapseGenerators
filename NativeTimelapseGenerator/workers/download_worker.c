@@ -1,4 +1,5 @@
 #include <avcall.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -71,6 +72,13 @@ size_t fetch_memory_callback(void* contents, size_t size, size_t nmemb, void* us
 	return real_size;
 }
 
+uint32_t swap32(uint32_t value) {
+	return ((value >> 24) & 0xff) |
+			((value >> 8) & 0xff00) |
+			((value << 8) & 0xff0000) |
+			((value << 24) & 0xff000000);
+}
+
 static struct fetch_result fetch_url(const char* url, CURL* curl_handle)
 {
 	struct fetch_result fetch = {
@@ -141,7 +149,7 @@ struct canvas_metadata download_canvas_metadata(const char* metadata_url, CURL* 
 	return metadata;
 }
 
-User* get_user(const WorkerInfo* worker_info, int int_id)
+User* get_user(const WorkerInfo* worker_info, UserIntId int_id)
 {
 	const Config* config = worker_info->config;
 	DownloadWorkerShared* shared = worker_info->download_worker_shared;
@@ -185,15 +193,10 @@ User* get_user(const WorkerInfo* worker_info, int int_id)
 	}
 	const char* chat_name = json_object_get_string(root_obj, "chatName");
 	if (!chat_name) {
-		free(user);
-		json_value_free(root);
-		return NULL;
+		user->chat_name = NULL;
 	}
-	user->chat_name = strdup(chat_name);
-	if (!user->chat_name) {
-		free(user);
-		json_value_free(root);
-		return NULL;
+	else {
+		user->chat_name = strdup(chat_name);
 	}
 	user->last_joined = (time_t)json_object_get_number(root_obj, "lastJoined");
 	user->pixels_placed = (uint32_t) json_object_get_number(root_obj, "pixelsPlaced");
@@ -205,54 +208,86 @@ User* get_user(const WorkerInfo* worker_info, int int_id)
 	return user;
 }
 
-struct top_placers get_top_placers(const WorkerInfo* worker_info, uint32_t* placers, size_t placers_size, size_t max_count)
+typedef struct placer_counts_entry {
+	UserIntId key; // user_int_id
+	uint32_t value; // pixels_placed
+} PlacerCountsEntry;
+
+struct top_placers get_top_placers(const WorkerInfo* worker_info, UserIntId* placers, size_t placers_size, size_t max_count)
 {
-	struct { uint32_t key; uint32_t value; }* placer_counts = NULL;
-	
+    if (!placers || placers_size == 0 || max_count == 0) {
+		struct top_placers result = { 0 };
+        return result;
+    }
+
+	// Count placer occurrances
+	PlacerCountsEntry* placer_counts_map = NULL;
 	for (uint32_t i = 0; i < placers_size; i++) {
-		int user_int_id = placers[i];
-		uint32_t current_placed = hmget(placer_counts, user_int_id);
-		hmput(placer_counts, user_int_id, current_placed + 1);
+		UserIntId user_int_id = placers[i];
+		PlacerCountsEntry* entry = hmgetp_null(placer_counts_map, user_int_id);
+		if (!entry) {
+			hmput(placer_counts_map, user_int_id, 1);
+		}
+		else {
+			uint32_t current_placed = entry->value;
+			hmput(placer_counts_map, user_int_id, current_placed + 1);
+
+		}
 	}
 
 	Placer* top_placers = calloc(max_count, sizeof(User));
 
 	// Iterate placer counts hashmap (once)
-	for (int i = 0; i < hmlen(placer_counts); i++) {
-		uint32_t user_int_id = placer_counts[i].key;
-		uint32_t placed = placer_counts[i].value;
+	size_t current_count = 0;
+	for (int i = 0; i < hmlen(placer_counts_map); i++) {
+		UserIntId user_int_id = placer_counts_map[i].key;
+		uint32_t placed = placer_counts_map[i].value;
 
 		// Find insertion position
-		size_t insert_pos = max_count;
-		for (size_t j = 0; j < max_count; j++) {
-			if (placed > top_placers[j].pixels_placed) {
-				insert_pos = j;
-				break;
-			}
-		}
+        size_t insert_pos = current_count;
+        while (insert_pos > 0 && placed > top_placers[insert_pos-1].pixels_placed) {
+            insert_pos--;
+        }
 
-		if (insert_pos < max_count) {
-			User* user = get_user(worker_info, user_int_id);
-			if (user) {
-				// Shift elements down
-				if (insert_pos < max_count - 1) {
-					memmove(&top_placers[insert_pos + 1], 
-						&top_placers[insert_pos], 
-						(max_count - insert_pos - 1) * sizeof(Placer));
-				}
-
-				// Insert new placer
-				top_placers[insert_pos] = (Placer){
-					.int_id = user_int_id,
-					.chat_name = user->chat_name,
-					.pixels_placed = placed,
-					.colour = colour_hash(user->chat_name)
-				};
+        if (insert_pos < max_count) {
+            User* user = get_user(worker_info, user_int_id);
+            if (!user) {
+				log_message(LOG_ERROR, LOG_HEADER"Failed to get user with int id %lu when calculating top placers",
+					worker_info->worker_id, user_int_id);
+				continue;
 			}
-		}
+
+            // Make room if array isn't full yet
+            if (current_count < max_count) {
+                current_count++;
+            }
+
+            // Shift elements up to make space
+            if (insert_pos < current_count - 1) {
+                memmove(&top_placers[insert_pos+1], 
+                       &top_placers[insert_pos],
+                       (current_count - insert_pos - 1) * sizeof(Placer));
+            }
+
+            // Insert new placer
+            top_placers[insert_pos] = (Placer){
+                .int_id = user_int_id,
+                .chat_name = user->chat_name,
+                .pixels_placed = placed,
+                .colour = colour_hash(user->chat_name)
+            };
+        }
 	}
 
-	hmfree(placer_counts);
+	// Shrink allocation if necessary
+	if (current_count < max_count) {
+        Placer* tmp = realloc(top_placers, current_count * sizeof(Placer));
+        if (tmp) {
+			top_placers = tmp;
+		} 
+    }
+
+	hmfree(placer_counts_map);
 	struct top_placers result = { .placers = top_placers, .size = max_count };
 	return result;
 }
@@ -353,12 +388,18 @@ DownloadResult* download(const WorkerInfo* worker_info, DownloadJob job)
 				return results;
 			}
 
-			uint32_t* placers = (uint32_t*)(void*) placers_data.memory;
-			size_t placers_size = placers_data.size / sizeof(uint32_t);	
+			// Placers is big endian, we assume we are little endian, so a swap must be performed
+			uint32_t* placers_data_u32 = (uint32_t*)(void*)placers_data.memory;
+			UserIntId* placers = (UserIntId*) malloc(placers_data.size);
+			size_t placers_u32_size = placers_data.size / sizeof(UserIntId);
+			for (size_t i = 0; i < placers_u32_size; i++) {
+				placers[i] = swap32(placers_data_u32[i]);
+			}
 
+			// Produce download result
 			DownloadResult* results = NULL;
 			struct top_placers top_placers = get_top_placers(worker_info, placers,
-				placers_size, config->max_top_placers);
+				placers_u32_size, config->max_top_placers);
 
 			DownloadResult placers_save_result = {
 				// Inherited from WorkerResult
@@ -421,7 +462,7 @@ DownloadResult* download(const WorkerInfo* worker_info, DownloadJob job)
 						.width = metadata.width,
 						.height = metadata.height,
 						.placers = placers,
-						.placers_size = placers_size
+						.placers_size = placers_u32_size
 					}
 				}
 			};

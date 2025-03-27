@@ -16,8 +16,10 @@ typedef union colour {
 	uint32_t value;
 } Colour;
 
+typedef uint32_t UserIntId;
+
 typedef struct user {
-	uint32_t int_id;
+	UserIntId int_id;
 	// Can be null
 	const char* chat_name;
 	uint32_t pixels_placed;
@@ -26,7 +28,7 @@ typedef struct user {
 } User;
 
 typedef struct placer {
-	uint32_t int_id;
+	UserIntId int_id;
 	// Can be null
 	const char* chat_name;
 	uint32_t pixels_placed;

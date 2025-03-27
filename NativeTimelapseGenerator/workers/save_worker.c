@@ -9,7 +9,6 @@
 
 #include "../console.h"
 #include "../main_thread.h"
-#include "../memory_utils.h"
 #include "../database.h"
 
 #define LOG_HEADER "[save worker %d] "
