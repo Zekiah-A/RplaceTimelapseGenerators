@@ -62,7 +62,7 @@ typedef struct worker_job {
 } WorkerJob;
 
 // Main thread
-typedef enum job_type {
+typedef enum job_type:uint8_t {
 	JOB_TYPE_DOWNLOAD = 1,
 	JOB_TYPE_RENDER = 2,
 	JOB_TYPE_SAVE = 3
@@ -93,7 +93,7 @@ typedef struct save_result {
 } SaveResult;
 
 // Render worker
-typedef enum render_job_type {
+typedef enum render_job_type:uint8_t {
 	RENDER_CANVAS = 1,
 	RENDER_DATE = 2,
 	RENDER_TOP_PLACERS = 3,
@@ -139,9 +139,11 @@ typedef struct render_result {
 
 
 // Download worker
-typedef enum download_job_type {
+typedef enum download_job_type:uint8_t {
 	DOWNLOAD_CANVAS = 1,
-	DOWNLOAD_PLACERS = 2
+	DOWNLOAD_PLACERS = 2,
+	DOWNLOAD_CACHED_CANVAS = 3,
+	DOWNLOAD_CACHED_PLACERS = 4
 } DownloadJobType;
 
 typedef struct download_job {

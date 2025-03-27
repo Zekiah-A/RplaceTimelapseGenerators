@@ -22,17 +22,17 @@ typedef enum worker_status:uint8_t {
 } WorkerStatus;
 
 typedef struct config {
-	const char* repo_url;
-	const char* download_base_url;
-	const char* game_server_base_url;
-	const char* commit_hashes_file_name;
+	char* repo_url;
+	char* download_base_url;
+	char* game_server_base_url;
+	char* commit_hashes_file_name;
 	size_t max_top_placers;
 } Config;
 
 // Generic thread data for each worker
 typedef struct worker_info {
 	// Per thread / worker
-	int worker_id;
+	long worker_id;
 	pthread_t thread_id;
 	WorkerStatus status;
 	union

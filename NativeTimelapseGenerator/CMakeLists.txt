@@ -21,6 +21,9 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
 	add_definitions(-DDEBUG)
 endif()
 
+# Add option for asan
+option(ENABLE_ASAN "Enable AddressSanitizer and UB Sanitizer" OFF)
+
 # Include directories
 include_directories(${CMAKE_SOURCE_DIR})
 
@@ -56,6 +59,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE png curl m readline dill nanobuf p
 # Debug & release build profiles
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
 	target_compile_options(${PROJECT_NAME} PRIVATE
+		# Warnings
 		-Wall
 		-Wextra
 		-Wpedantic
@@ -70,14 +74,42 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
 		-Wformat-security
 		-Wsign-conversion
 		-Wconversion
-		#-fsanitize=address
-		#-fsanitize=undefined
-		#-fsanitize=leak
 		-Wno-unused-parameter
+		# Sanitisers
+		-fsanitize=address,undefined # ,leak
 		-fno-omit-frame-pointer
-		-fstack-protector-strong
+		-fno-sanitize-address-use-after-scope
+		#-fstack-protector-strong
+		# Extra
 		-D_FORTIFY_SOURCE=2
 	)
+
+	if(ENABLE_ASAN)
+		message(STATUS "Enabling ASan/UBSan (risky with ffcall)")
+		target_compile_options(${PROJECT_NAME} PRIVATE
+			-fsanitize=address,undefined
+			-fno-omit-frame-pointer
+			-fno-sanitize-address-use-after-scope
+		)
+		target_link_options(${PROJECT_NAME} PRIVATE
+			-fsanitize=address,undefined
+		)
+
+		# Special handling for ffcall
+		#target_compile_options(${PROJECT_NAME} PRIVATE
+		#	-fno-sanitize=function
+		#)
+
+		# Add suppression file support
+		if(EXISTS "${CMAKE_SOURCE_DIR}/asan.supp")
+			set(ASAN_OPTIONS "suppressions=${CMAKE_SOURCE_DIR}/asan.supp:detect_stack_use_after_return=0")
+			set(UBSAN_OPTIONS "suppressions=${CMAKE_SOURCE_DIR}/ubsan.supp:print_stacktrace=1")
+			set_property(TARGET ${PROJECT_NAME} APPEND PROPERTY ENVIRONMENT 
+				"ASAN_OPTIONS=${ASAN_OPTIONS}"
+				"UBSAN_OPTIONS=${UBSAN_OPTIONS}"
+			)
+		endif()
+	endif()
 endif()
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
 	target_compile_options(${PROJECT_NAME} PRIVATE

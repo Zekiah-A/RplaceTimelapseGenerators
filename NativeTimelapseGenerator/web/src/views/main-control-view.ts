@@ -1,6 +1,6 @@
 import { LitElement, html, css } from "lit";
 import { customElement, property } from "lit/decorators.js";
-import { ControlPacket, ControlPanel } from "./control-panel";
+import { ControlPacket, ControlPanel, EventPacket } from "./control-panel";
 import { BufWriter } from "nanobuf";
 
 @customElement("main-control-view")
@@ -18,6 +18,15 @@ export class MainControlView extends LitElement {
 
 	createRenderRoot() {
 		return this
+	}
+
+	connectedCallback(): void {
+		super.connectedCallback();
+
+		const parent = this.parentElement as ControlPanel;
+		parent.addPacketHandler(EventPacket.StartStatus, (packet) => {
+			this.started = packet.u8() === 1;
+		})
 	}
 
 	render() {

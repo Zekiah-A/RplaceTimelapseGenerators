@@ -38,20 +38,8 @@ export class WorkerInstance extends LitElement {
 
 	render() {
 		return html`
-			<table style="width:100%">
-				<tr>
-					<th>Type:</th>
-					<td> ${this.workerType}</td>
-				</tr>
-				<tr>
-					<th>Worker ID:</th>
-					<td>${this.workerId}</td>
-				</tr>
-				<tr>
-					<th>Status:</th>
-					<td>${this.status}</td>
-				</tr>
-			</table>
+			<p><strong>Worker ID:</strong> <span>${this.workerId}</span></p>
+			<p><strong>Status:</strong> <span>${this.status}</span></p>
 		`;
 	}
 }
@@ -91,7 +79,7 @@ export class WorkerManager extends LitElement {
 	render() {
 		return html`
 			<h4>${this.workerType} workers: ${this.workers.length}</h4>
-			<ul>
+			<ul style="margin: 0; padding: 0; list-style-type: none;">
 				${this.workers.map(
 					(worker) => html`
 						<li>

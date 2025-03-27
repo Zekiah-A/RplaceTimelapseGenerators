@@ -102,14 +102,17 @@ table {
 	width: 100%;
 	border-collapse: collapse;
 }
-th {
+thead th {
 	padding: 0.5rem;
 }
-td {
+tbody th {
+	border: 1px solid #ccc;
+}
+tbody td {
 	border: 1px solid #ccc;
 	text-align: left;
 }
-th {
+thead th {
 	cursor: pointer;
 }
 worker-manager {

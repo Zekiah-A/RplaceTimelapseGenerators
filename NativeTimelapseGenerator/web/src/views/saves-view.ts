@@ -19,8 +19,8 @@ type Save = {
 	path: string;
 };
 
-@customElement("backups-view")
-export class BackupsView extends LitElement {
+@customElement("saves-view")
+export class SavesView extends LitElement {
 	@property({ type: String })
 	currentRenderSave: string = "";
 
@@ -101,7 +101,7 @@ export class BackupsView extends LitElement {
 
 	render() {
 		return html`
-			<h2>Saves Summary:</h2>
+			<h2>Saves:</h2>
 			<div style="overflow-y: scroll; max-height: calc(100% - 48px);">
 				<div>
 					${Array.from(this.saves.entries()).map(([type, saveList]) => {

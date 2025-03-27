@@ -34,27 +34,26 @@ bool add_save_to_db(int commit_id, SaveJobType type, const char* save_path)
 
 	rc = sqlite3_prepare_v2(database, sql, -1, &stmt, 0);
 	if (rc != SQLITE_OK) {
-		log_message(LOG_ERROR, "[database] Failed to prepare save statement: %s\n", sqlite3_errmsg(database));
+		log_message(LOG_ERROR, LOG_HEADER"Failed to prepare save statement: %s\n", sqlite3_errmsg(database));
 		pthread_mutex_unlock(&database_mutex);
 		return false;
 	}
 
 	sqlite3_bind_int(stmt, 1, commit_id);
 	sqlite3_bind_int64(stmt, 2, current_time);  // start_date
-	sqlite3_bind_int64(stmt, 3, current_time);  // finish_date (same as start for now)
+	sqlite3_bind_int64(stmt, 3, current_time);  // finish_date (TODO: Implement - same as start for now)
 	sqlite3_bind_int(stmt, 4, type);
-	sqlite3_bind_text(stmt, 5, save_path, -1, SQLITE_STATIC);
+	sqlite3_bind_text(stmt, 5, save_path, -1, SQLITE_TRANSIENT);
 
 	rc = sqlite3_step(stmt);
-	sqlite3_finalize(stmt);
-
-	pthread_mutex_unlock(&database_mutex);
-
 	if (rc != SQLITE_DONE) {
-		log_message(LOG_ERROR, "[database] Failed to insert save: %s\n", sqlite3_errmsg(database));
+		log_message(LOG_ERROR, LOG_HEADER"Failed to insert save: %s\n", sqlite3_errmsg(database));
+		sqlite3_finalize(stmt);
+		pthread_mutex_unlock(&database_mutex);
 		return false;
 	}
 
+	pthread_mutex_unlock(&database_mutex);
 	return true;
 }
 
@@ -67,7 +66,7 @@ bool check_save_exists(int commit_id, SaveJobType type)
 	const char* sql = "SELECT COUNT(*) FROM Saves WHERE commit_id = ? AND type = ?";
 	
 	if (sqlite3_prepare_v2(database, sql, -1, &stmt, 0) != SQLITE_OK) {
-		log_message(LOG_ERROR, "[database] Failed to prepare save check statement: %s\n", sqlite3_errmsg(database));
+		log_message(LOG_ERROR, LOG_HEADER"Failed to prepare save check statement: %s\n", sqlite3_errmsg(database));
 		pthread_mutex_unlock(&database_mutex);
 		return false;
 	}
@@ -172,7 +171,7 @@ int find_existing_palette(const Colour* palette, int palette_size)
 		return -1;
 	}
 
-	sqlite3_bind_text(stmt, 1, palette_hash, -1, SQLITE_STATIC);
+	sqlite3_bind_text(stmt, 1, palette_hash, -1, SQLITE_TRANSIENT);
 
 	if (sqlite3_step(stmt) == SQLITE_ROW) {
 		palette_id = sqlite3_column_int(stmt, 0);
@@ -307,7 +306,7 @@ int find_existing_commit(const char* hash)
 
 	int rc = sqlite3_prepare_v2(database, exists_sql, -1, &exists_stmt, 0);
 	if (rc != SQLITE_OK) {
-		log_message(LOG_ERROR, LOG_HEADER "Failed to prepare statement: %s", sqlite3_errmsg(database));
+		log_message(LOG_ERROR, LOG_HEADER"Failed to prepare statement: %s", sqlite3_errmsg(database));
 		return false;
 	}
 
@@ -326,7 +325,7 @@ int find_existing_commit(const char* hash)
 	}
 	else {
 		// Error
-		log_message(LOG_ERROR, LOG_HEADER "Error executing statement: %s", sqlite3_errmsg(database));
+		log_message(LOG_ERROR, LOG_HEADER"Error executing statement: %s", sqlite3_errmsg(database));
 		sqlite3_finalize(exists_stmt);
 		return -1;
 	}
@@ -457,7 +456,7 @@ bool try_create_database()
 	const char* schema_file = "schema.sql";
 
 	// Open database connection
-	int result = sqlite3_open("instance_tracker.db", &database);
+	int result = sqlite3_open_v2("instance_tracker.db", &database, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, NULL);
 	if (result != SQLITE_OK) {
 		log_message(LOG_ERROR, LOG_HEADER"Cannot open database: %s\n", sqlite3_errmsg(database));
 		pthread_mutex_unlock(&database_mutex);

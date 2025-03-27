@@ -35,7 +35,8 @@ static pthread_mutex_t event_sockets_mutex = PTHREAD_MUTEX_INITIALIZER;
 typedef enum event_packet:uint8_t {
 	EVENT_PACKET_LOG_MESSAGE = 0,
 	EVENT_PACKET_WORKERS_INFO = 1,
-	EVENT_PACKET_SAVE_STATUS = 2
+	EVENT_PACKET_SAVE_STATUS = 2,
+	EVENT_PACKET_START_STATUS = 3
 } EventPacket;
 
 typedef enum control_packet:uint8_t {
@@ -67,7 +68,7 @@ NOSANITIZE void ui_start_generation(Config config)
 }
 
 // Called by UI thread, must pass back to main thread
-void ui_stop_generation()
+NOSANITIZE void ui_stop_generation()
 {
 	av_alist stop_alist;
 	av_start_void(stop_alist, &stop_generation); 
@@ -75,7 +76,7 @@ void ui_stop_generation()
 }
 
 // Called by UI thread, must pass back to main thread
-void ui_add_worker(int worker_type, int add)
+NOSANITIZE void ui_add_worker(int worker_type, int add)
 {
 	for (int i = 0; i < add; i++) {
 		av_alist add_worker_alist;
@@ -85,7 +86,7 @@ void ui_add_worker(int worker_type, int add)
 }
 
 // Called by UI thread, must pass back to main thread
-void ui_remove_worker(int worker_type, int remove)
+NOSANITIZE void ui_remove_worker(int worker_type, int remove)
 {
 	for (int i = 0; i < remove; i++) {
 		av_alist rm_worker_alist;
@@ -289,7 +290,6 @@ coroutine void ws_connect(int socket)
 	go(ws_listen(socket));
 
 	// Send logs history
-	log_message(LOG_INFO, "Event socket client connected!");
 	for (int i = 0; i < arrlen(log_messages); i++) {
 		LogMessage log_message = log_messages[i];
 		bw_stackfree(packet) = bw_create_default();
@@ -299,6 +299,7 @@ coroutine void ws_connect(int socket)
 		bw_str(&packet, log_message.message);
 		ws_send_packet(socket, &packet);
 	}
+	log_message(LOG_INFO, "Event socket client connected!");
 
 	// Send all workers info
 	bw_stackfree(packet) = bw_create_default();
@@ -542,7 +543,8 @@ void parse_command(char* input)
 		char* game_server_base_url = strdup(strtok_r(NULL, " ", &saveptr));
 		char* commit_hashes_file_name = strdup(strtok_r(NULL, " ", &saveptr));
 		char* max_top_placers_str = strdup(strtok_r(NULL, " ", &saveptr));
-		int max_top_placers = atoi(max_top_placers_str);
+		size_t max_top_placers = strtoul(max_top_placers_str, NULL, 10);
+
 		if (repo_url && download_base_url && commit_hashes_file_name && game_server_base_url) {
 			Config config = (Config) {
 				repo_url,
@@ -657,11 +659,12 @@ void stop_console()
 	pthread_cancel(socket_thread_id);
 }
 
+//__attribute__((__format__ (__printf__, 2, 0)))
 void log_message(LogType type, const char* format, ...)
 {
 	va_list args;
 	va_start(args, format);
-	size_t size = vsnprintf(NULL, 0, format, args) + 1; // +1 for null-terminator
+	size_t size = (size_t) vsnprintf(NULL, 0, format, args) + 1; // +1 for null-terminator
 	va_end(args);
 
 	char* buffer = (char*) malloc(size);
@@ -703,27 +706,32 @@ void update_worker_stats(WorkerType worker_type, int count)
 	// TODO: Send websocket update
 
 	AUTOFREE char* print = NULL;
-	asprintf(&print, "\x1b[34mworker_stats: type: %d count: %d\x1b[0m", worker_type, count);
+	asprintf(&print, "\x1b[34mworker_stats:\x1b[0m type: %d count: %d", worker_type, count);
 	puts(print);
 }
 
+typedef struct save_jobs_entry {
+    SaveJobType key; // save job type
+    SaveResult* value; // array of save results
+} SaveJobsEntry;
+
 void update_save_stats(int completed_saves, float saves_per_second, SaveResult* save_results)
 {
-	struct { SaveJobType key; SaveResult* value; }* jobs_by_type = NULL;
+	SaveJobsEntry* jobs_by_type = NULL;
 	for (int i = 0; i < arrlen(save_results); i++) {
-		SaveResult* save = &save_results[i];
+		SaveResult save = save_results[i];
+		SaveJobsEntry* entry = (SaveJobsEntry*) hmgetp_null(jobs_by_type, save.save_type);
 
-		SaveResult* type_jobs = (SaveResult*) hmgetp_null(jobs_by_type, save->save_type);
-		if (!type_jobs) {
-			// Creare new array in hashmap if not found
+		if (!entry) {
 			SaveResult* new_jobs = NULL;
-			hmput(jobs_by_type, save->save_type, new_jobs);
-			type_jobs = (SaveResult*) hmgetp_null(jobs_by_type, save->save_type);
+			arrput(new_jobs, save);
+			hmput(jobs_by_type, save.save_type, new_jobs);
 		}
-
-		arrput(type_jobs, *save);
+		else {
+			arrput(entry->value, save);
+		}
 	}
-
+	
 	bw_stackfree(packet) = bw_create_default();
 	bw_u8(&packet, EVENT_PACKET_SAVE_STATUS);
 	bw_u32(&packet, (uint32_t) completed_saves);
@@ -738,30 +746,24 @@ void update_save_stats(int completed_saves, float saves_per_second, SaveResult* 
 		// Process jobs of this type
 		int save_count = (int) arrlen(type_jobs);
 		if (save_count < 0) {
+			bw_u32(&packet, 0);
 			continue;
 		}
 		bw_u32(&packet, (uint32_t) save_count);
 		for (int j = 0; j < save_count; j++) {
-			SaveResult* job = &type_jobs[j];
-			bw_u32(&packet, (uint32_t) job->commit_id);
-			bw_str(&packet, job->commit_hash);
-			bw_u64(&packet, (uint64_t) job->date);
-			bw_str(&packet, job->save_path);
+			SaveResult job = type_jobs[j];
+			bw_u32(&packet, (uint32_t) job.commit_id);
+			bw_str(&packet, job.commit_hash ? job.commit_hash : "(null)");
+			bw_u64(&packet, (uint64_t) job.date);
+			bw_str(&packet, job.save_path ? job.save_path : "(null)");
 		}
 	}
 	ws_send_all_packet(&packet);
 
-	// Epic console output
 	AUTOFREE char* print = NULL;
 	asprintf(&print, 
-		"\x1b[1;32m[save_stats]\x1b[0m\n"
-		"\x1b[36m═════════════════════════════════════════════\x1b[0m\n"
-		"📅 Completed Saves: \x1b[1;32m%d\x1b[0m\n"
-		"✨ Saves Per Second: \x1b[1;33m%.2f\x1b[0m\n"
-		"📂 Save Types Processed: \x1b[1;34m%li\x1b[0m\n"
-		"\x1b[36m═════════════════════════════════════════════\x1b[0m",
-		saves_per_second, saves_types_count
-	);
+		"\x1b[36msave_stats:\x1b[0m completed: \x1b[32m%d\x1b[0m saves_per_second: \x1b[33m%.2f\x1b[0m save_types_count: \x1b[34m%li\x1b[0m\x1b[36m",
+		completed_saves, (double) saves_per_second, saves_types_count);
 	puts(print);
 
 	for (int i = 0; i < saves_types_count; i++) {
@@ -775,4 +777,12 @@ void update_save_stats(int completed_saves, float saves_per_second, SaveResult* 
 		);
 		puts(type_print);
 	}
+}
+
+void update_start_status(bool started)
+{
+	bw_stackfree(packet) = bw_create_default();
+	bw_u8(&packet, EVENT_PACKET_START_STATUS);
+	bw_u8(&packet, started);
+	ws_send_all_packet(&packet);
 }

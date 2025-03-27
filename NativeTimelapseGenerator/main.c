@@ -11,7 +11,7 @@
 #include "main_thread.h"
 
 const char* argp_program_version = "NativeTimelapseGenerator 1.0";
-const char* argp_program_bug_address = "<bug@example.com>";
+const char* argp_program_bug_address = "<zekiahamoako@outlook.com>, <admin@rplace.live>";
 static char doc[] = "NativeTimelapseGenerator Generator -- A program to generate timelapses from rplace canvas data";
 static char args_doc[] = "";
 static struct argp_option options[] = {

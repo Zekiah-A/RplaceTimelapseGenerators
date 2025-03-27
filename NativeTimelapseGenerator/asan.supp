@@ -1,0 +1,13 @@
+interceptor_via_lib:libffcall
+interceptor_via_fun:avcall_arg_int
+interceptor_via_fun:avcall_arg_uint
+interceptor_via_fun:avcall_arg_long
+interceptor_via_fun:avcall_arg_ulong
+interceptor_via_fun:avcall_arg_ptr
+interceptor_via_fun:avcall_arg_longlong
+interceptor_via_fun:avcall_arg_ulonglong
+interceptor_via_fun:avcall_arg_float
+interceptor_via_fun:avcall_arg_double
+interceptor_via_fun:avcall_arg_struct
+interceptor_via_fun:avcall_start
+interceptor_via_fun:avcall_call

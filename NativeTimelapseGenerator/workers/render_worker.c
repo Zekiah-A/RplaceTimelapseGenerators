@@ -68,12 +68,12 @@ struct image_result {
 
 cairo_status_t cairo_write(void* closure, const unsigned char* data, unsigned int length)
 {
-    FILE* stream = (FILE*) closure;
-    if (fwrite(data, 1, length, stream) != length) {
-        return CAIRO_STATUS_WRITE_ERROR;
-    }
+	FILE* stream = (FILE*) closure;
+	if (fwrite(data, 1, length, stream) != length) {
+		return CAIRO_STATUS_WRITE_ERROR;
+	}
 
-    return CAIRO_STATUS_SUCCESS;
+	return CAIRO_STATUS_SUCCESS;
 }
 
 struct image_result generate_top_placers_image(Placer* top_placers, size_t top_placers_size)
@@ -84,7 +84,7 @@ struct image_result generate_top_placers_image(Placer* top_placers, size_t top_p
 	};
 	int font_size = 96;
 	int text_image_width = 1280;
-	int text_image_height = font_size * top_placers_size;
+	int text_image_height = font_size * (int)top_placers_size;
 	cairo_surface_t* surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, text_image_width, text_image_height);
 	cairo_t* cr = cairo_create(surface);
 
@@ -111,6 +111,31 @@ struct image_result generate_top_placers_image(Placer* top_placers, size_t top_p
 		cairo_show_text(cr, top_placer_text);
 	}
 
+	// Finish drawing
+	cairo_destroy(cr);
+
+	// Write to memory buffer
+	unsigned char* buffer = NULL;
+	unsigned long buffer_size = 0;
+	FILE* memory_stream = open_memstream((char**) &buffer, &buffer_size);
+	if (memory_stream == NULL) {
+		result.error = RENDER_FAIL_DRAW;
+		result.error_msg = strdup("Failed to open date image memory stream");
+		cairo_surface_destroy(surface);
+		return result;
+	}
+	if (cairo_surface_write_to_png_stream(surface, cairo_write, memory_stream) != CAIRO_STATUS_SUCCESS) {
+		result.error = RENDER_FAIL_DRAW;
+		result.error_msg = strdup("Failed to write to date image memory stream");
+		fclose(memory_stream);
+		cairo_surface_destroy(surface);
+		return result;
+	}
+	fclose(memory_stream);
+	cairo_surface_destroy(surface);
+
+	result.data = buffer;
+	result.size = buffer_size;
 	return result;
 }
 
@@ -272,7 +297,6 @@ struct image_result generate_date_image(time_t date, int style)
 	if (memory_stream == NULL) {
 		result.error = RENDER_FAIL_DRAW;
 		result.error_msg = strdup("Failed to open date image memory stream");
-		perror("open_memstream failed");
 		cairo_surface_destroy(surface);
 		return result;
 	}

@@ -93,7 +93,7 @@ void add_download_worker()
 void remove_download_worker()
 {
 	if (arrlen(download_workers) <= 0) {
-		log_message(LOG_ERROR, "Couldn't remove download worker: download worker count <= 0");
+		log_message(LOG_ERROR, LOG_HEADER"Couldn't remove download worker: download worker count <= 0");
 		return;
 	}
 
@@ -121,7 +121,7 @@ void add_render_worker()
 void remove_render_worker()
 {
 	if (arrlen(render_workers) <= 0) {
-		log_message(LOG_ERROR, "Couldn't remove render worker: render worker count <= 0");
+		log_message(LOG_ERROR, LOG_HEADER"Couldn't remove render worker: render worker count <= 0");
 		return;
 	}
 
@@ -149,7 +149,7 @@ void remove_save_worker()
 {
 	if (arrlen(save_workers) <= 0) {
 		stop_console();
-		log_message(LOG_ERROR, "Couldn't remove save worker: save worker count <= 0");
+		log_message(LOG_ERROR, LOG_HEADER"Couldn't remove save worker: save worker count <= 0");
 		exit(EXIT_FAILURE);
 	}
 	WorkerInfo* info = arrpop(save_workers);
@@ -219,8 +219,8 @@ void collect_save_stats(SaveResult save_result)
 	}
 
 	float saves_per_second = ((float)(now - completed_saves_date)) / (float) completed_saves_since;
-	completed_saves_since = 0;
 	completed_saves_date = now;
+	completed_saves_since = 0;
 	update_save_stats(completed_saves, saves_per_second, save_results);
 	arrclear(save_results);
 }
@@ -230,11 +230,10 @@ void push_completed(SaveResult result)
 {
 	completed_saves++;
 	completed_saves_since++;
-	av_alist backup_alist;
-	av_struct(backup_alist, SaveResult, result);
-	av_start_void(backup_alist, &collect_save_stats);
-
-	main_thread_post(backup_alist);
+	av_alist save_alist;
+	av_start_void(save_alist, &collect_save_stats);
+	av_struct(save_alist, SaveResult, result);
+	main_thread_post(save_alist);
 }
 
 // Forward declarations
@@ -274,6 +273,8 @@ SaveJob pop_save_stack(int worker_id)
 // STRICT: Called by main thread
 void designate_jobs(int commit_id, CommitInfo info)
 {
+	// TODO: Implement missing cases
+
 	// Check canvas download and rendering
 	if (!check_save_exists(commit_id, SAVE_CANVAS_DOWNLOAD)) {
 		DownloadJob download_canvas_job = {
@@ -295,7 +296,7 @@ void designate_jobs(int commit_id, CommitInfo info)
 				
 			}
 		};
-		push_render_stack(render_canvas_job);
+		push_download_stack(render_canvas_job);
 	}*/
 
 	// Check placers download and rendering
@@ -352,7 +353,7 @@ void* read_commit_hashes(int instance_id, FILE* file)
 	int line_index = 0;
 	while ((result = fgets(line, MAX_HASHES_LINE_LEN, file)) != NULL) {
 		line_index++;
-		int result_len = strlen(result); // strip \n
+		size_t result_len = strlen(result); // strip \n
 		result[--result_len] = '\0';
 
 		// Comment or ignore
@@ -362,13 +363,13 @@ void* read_commit_hashes(int instance_id, FILE* file)
 		}
 
 		if (strncmp(result, "Commit: ", 8) == 0) {			
-			int hash_len = result_len - 8;
+			size_t hash_len = result_len - 8;
 			char* commit_hash = malloc(hash_len + 1);
 			strcpy(commit_hash, result + 8);
 			new_canvas_info.commit_hash = commit_hash;            
 		}
 		else if (strncmp(result, "Date: ", 6) == 0) {
-			int date_len = strlen(result) - 6;
+			size_t date_len = strlen(result) - 6;
 			char* date = malloc(date_len + 1);
 			strcpy(date, result + 6);
 			time_t date_int = strtoll(date, NULL, 10);
@@ -399,7 +400,7 @@ void* read_commit_hashes(int instance_id, FILE* file)
 
 	if (download_stack.top < 0) {
 		stop_console();
-		log_message(LOG_ERROR, "Could not find any unprocessed backups from commit_hashes.txt\n");
+		log_message(LOG_ERROR, LOG_HEADER"Could not find any unprocessed backups from commit_hashes.txt\n");
 		exit(EXIT_SUCCESS);
 	}
 	return NULL;
@@ -409,9 +410,9 @@ int last_progress_percentage = -1;
 
 int progress_callback(const git_indexer_progress* stats, void* payload)
 {
-	int total_objects = stats->total_objects;
-	int received_objects = stats->received_objects;
-	int indexed_objects = stats->indexed_objects;
+	unsigned int total_objects = stats->total_objects;
+	unsigned int received_objects = stats->received_objects;
+	unsigned int indexed_objects = stats->indexed_objects;
 	int percentage = (total_objects > 0) ? (received_objects * 100 / total_objects) : 0;
 	if (percentage != last_progress_percentage) {
 		log_message(LOG_INFO, LOG_HEADER"Cloning progress: %d%% (%d/%d) - Indexed: %d", percentage, received_objects, total_objects, indexed_objects);
@@ -446,7 +447,7 @@ void append_new_commits_to_log(git_repository* repo, const char* log_file_name)
 	git_revwalk* walker = NULL;
 	if (git_revwalk_new(&walker, repo) != 0) {
 		const git_error* e = git_error_last();
-		log_message(LOG_ERROR, "Error creating revwalk: %s\n", e->message);
+		log_message(LOG_ERROR, LOG_HEADER"Error creating revwalk: %s\n", e->message);
 		return;
 	}
 
@@ -455,7 +456,7 @@ void append_new_commits_to_log(git_repository* repo, const char* log_file_name)
 
 	FILE* log_file = fopen(log_file_name, "a");
 	if (!log_file) {
-		log_message(LOG_ERROR, "Error opening log file for appending\n");
+		log_message(LOG_ERROR, LOG_HEADER"Error opening log file for appending\n");
 		git_revwalk_free(walker);
 		return;
 	}
@@ -466,7 +467,7 @@ void append_new_commits_to_log(git_repository* repo, const char* log_file_name)
 		git_commit* commit = NULL;
 		if (git_commit_lookup(&commit, repo, &oid) != 0) {
 			const git_error* e = git_error_last();
-			log_message(LOG_ERROR, "Error looking up commit: %s\n", e->message);
+			log_message(LOG_ERROR, LOG_HEADER"Error looking up commit: %s\n", e->message);
 			continue;
 		}
 
@@ -511,7 +512,7 @@ const char* get_repo_commit_hashes(const char* repo_url)
 			git_repository* repo = NULL;
 			if (git_repository_open(&repo, repo_path) != 0) {
 				const git_error* e = git_error_last();
-				log_message(LOG_ERROR, "Error opening repository: %s\n", e->message);
+				log_message(LOG_ERROR, LOG_HEADER"Error opening repository: %s\n", e->message);
 				git_libgit2_shutdown();
 				return NULL;
 			}
@@ -542,7 +543,7 @@ const char* get_repo_commit_hashes(const char* repo_url)
 	git_revwalk* walker = NULL;
 	if (git_revwalk_new(&walker, repo) != 0) {
 		const git_error* e = git_error_last();
-		log_message(LOG_ERROR, "Error creating revwalk: %s\n", e->message);
+		log_message(LOG_ERROR, LOG_HEADER"Error creating revwalk: %s\n", e->message);
 		git_repository_free(repo);
 		git_libgit2_shutdown();
 		return NULL;
@@ -554,7 +555,7 @@ const char* get_repo_commit_hashes(const char* repo_url)
 
 	FILE* log_file = fopen(log_file_name, "w");
 	if (!log_file) {
-		log_message(LOG_ERROR, "Error opening log file for writing\n");
+		log_message(LOG_ERROR, LOG_HEADER"Error opening log file for writing\n");
 		git_revwalk_free(walker);
 		git_repository_free(repo);
 		git_libgit2_shutdown();
@@ -578,7 +579,7 @@ const char* get_repo_commit_hashes(const char* repo_url)
 		AUTOFREE char* commit_date = NULL;
 		asprintf(&commit_date, "%ld", commit_time);
 
-		fprintf(log_file, "Commit: %s\nAuthor: %s\nDate: %s\n", commit_hash, author_name, commit_date);
+		fprintf(log_file, LOG_HEADER"Commit: %s\nAuthor: %s\nDate: %s\n", commit_hash, author_name, commit_date);
 		commit_count++;
 
 		if (commit_count % 100 == 0) {
@@ -610,7 +611,7 @@ void make_save_dir(const char* name)
 }
 
 // Start all workers, initiate rendering backups
-void start_generation(Config config)
+NOSANITIZE void start_generation(Config config)
 {
 	// Start database work thread
 	start_database();
@@ -642,7 +643,7 @@ void start_generation(Config config)
 	}
 
 	// Create shared worker datas
-	_download_worker_shared = (DownloadWorkerShared) { };
+	_download_worker_shared = (DownloadWorkerShared) { 0 };
 	_render_worker_shared = (RenderWorkerShared) { };
 	_save_worker_shared = (SaveWorkerShared) { };
 
@@ -694,7 +695,8 @@ void start_generation(Config config)
 		log_message(LOG_INFO, LOG_HEADER"Adding save worker %d...", i + 1);
 		add_save_worker();
 	}
-	log_message(LOG_INFO, LOG_HEADER"Backup generation started.");
+	log_message(LOG_INFO, LOG_HEADER"Save generation started.");
+	update_start_status(true);
 }
 
 // Often called by UI. Cleanly shutdown generation side of program, will cleanup all resources
@@ -713,7 +715,7 @@ void stop_generation()
 	remove_all_workers(render_workers);
 	remove_all_workers(save_workers);
 
-	log_message(LOG_INFO, "Backup generation stopped.");
+	log_message(LOG_INFO, LOG_HEADER"Backup generation stopped.");
 }
 
 void stop_global()
@@ -726,7 +728,7 @@ void stop_global()
 
 void safe_segfault_exit(int sig_num)
 {
-	size_t size = 0;
+	int size = 0;
 	void* stack_pointers[10];
 
 	// get void*'s for all entries on the stack

@@ -49,7 +49,7 @@ SaveResult save(SaveJob job)
 		return (SaveResult) { .save_error = SAVE_ERROR_DATETIME, .error_msg = strdup("Failed to format timestamp") };
 	}
 
-	AUTOFREE char* save_path = NULL;
+	char* save_path = NULL;
 	switch (job.type) {
 		case SAVE_PLACERS_DOWNLOAD: {
 			asprintf(&save_path, "placer_downloads/%s_%d_%s", timestamp, job.commit_id, job.commit_hash);

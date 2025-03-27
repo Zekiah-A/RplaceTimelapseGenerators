@@ -58,18 +58,27 @@
             "args": [],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/NativeTimelapseGenerator/build",
-            "environment": [],
+            "environment": [
+                {
+                    "name": "ASAN_OPTIONS",
+                    "value": "detect_leaks=1:halt_on_error=1:log_path=asan.log:suppressions=${workspaceFolder}/NativeTimelapseGenerator/asan.supp"
+                },
+                {
+                    "name": "UBSAN_OPTIONS",
+                    "value": "print_stacktrace=1:halt_on_error=1:suppressions=${workspaceFolder}/NativeTimelapseGenerator/ubsan.supp"
+                }
+            ],
             "externalConsole": false,
             "MIMode": "gdb",
             "preLaunchTask": "Build with CMake",
             "setupCommands": [
                 {
-                    "description": "Enable pretty-printing for gdb",
+                    "description": "Enable pretty-printing",
                     "text": "-enable-pretty-printing",
                     "ignoreFailures": true
                 },
                 {
-                    "description": "Set Disassembly Flavor to Intel",
+                    "description": "Set disassembly flavor",
                     "text": "-gdb-set disassembly-flavor intel",
                     "ignoreFailures": true
                 }

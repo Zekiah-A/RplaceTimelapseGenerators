@@ -6,8 +6,8 @@ import "./views/main-control-view.ts";
 import { MainControlView } from "./views/main-control-view.ts";
 import "./views/worker-manager-view.ts";
 import { WorkerManagerView } from "./views/worker-manager-view.ts";
-import "./views/backups-view.ts";
-import { BackupsView } from "./views/backups-view.ts";
+import "./views/saves-view.ts";
+import { SavesView } from "./views/saves-view.ts";
 import "./views/logs-list-view.ts";
 import { LogsListView } from "./views/logs-list-view.ts";
 
@@ -46,11 +46,11 @@ document.addEventListener("DOMContentLoaded", async () => {
 		}
 	}
 
-	class BackupsPanel {
-		private _view: BackupsView;
+	class SavesPanel {
+		private _view: SavesView;
 
 		constructor(public container: ComponentContainer) {
-			this._view = document.querySelector("backups-view") as BackupsView;
+			this._view = document.querySelector("saves-view") as SavesView;
 			this._view.classList.add("layout-view");
 			this._view.style.position = 'absolute';
 			this._view.style.overflow = 'hidden';
@@ -109,9 +109,9 @@ document.addEventListener("DOMContentLoaded", async () => {
 					]			
 				},
 				{
-					title: "Backups",
+					title: "Saves",
 					type: "component",
-					componentType: "backups-panel",
+					componentType: "saves-panel",
 					reorderEnabled: true,
 					size: "20%"
 				}
@@ -129,7 +129,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 	// Register components as virtual
 	goldenLayout.registerComponentConstructor("main-controls", MainControls, true);
 	goldenLayout.registerComponentConstructor("worker-manager", WorkerManager, true);
-	goldenLayout.registerComponentConstructor("backups-panel", BackupsPanel, true);
+	goldenLayout.registerComponentConstructor("saves-panel", SavesPanel, true);
 	goldenLayout.registerComponentConstructor("logs-panel", LogsPanel, true);
 	goldenLayout.loadLayout(layout);
 	goldenLayout.resizeWithContainerAutomatically = true;

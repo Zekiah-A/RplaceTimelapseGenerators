@@ -4,13 +4,14 @@ import { BufReader } from "nanobuf";
 
 import "./main-control-view.ts";
 import "./worker-manager-view.ts";
-import "./backups-view.ts";
+import "./saves-view.ts";
 import "./logs-list-view.ts";
 
 export enum EventPacket {
 	LogMessage = 0,
 	WorkerStatus = 1,
 	SaveStatus = 2,
+	StartStatus = 3
 };
 
 export enum ControlPacket {
@@ -112,7 +113,7 @@ export class ControlPanel extends LitElement {
 		return html`
 			<main-control-view .connected=${this.connected}></main-control-view>
 			<worker-manager-view></worker-manager-view>
-			<backups-view></backups-view>
+			<saves-view></saves-view>
 			<logs-list-view></logs-list-view>
 		`
 	}

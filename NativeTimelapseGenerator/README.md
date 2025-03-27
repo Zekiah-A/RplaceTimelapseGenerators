@@ -135,3 +135,19 @@ save to be produced, and a date render will cause a `DATE_RENDER` save to be pro
     ```sh
     cmake --build . --target clean
     ```
+
+### Debugging notes:
+Extreme debugging can be performed with asan, see the following:
+```
+cmake -B build -DENABLE_ASAN=ON .
+```
+```bash
+workspaceFolder="/path/to/project/folder"
+gdb -ex "set environment ASAN_OPTIONS=halt_on_error=1:log_path=asan.log:suppressions=${workspaceFolder}/NativeTimelapseGenerator/asan.supp:verbosity=3" \
+    -ex "set environment UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1:suppressions=${workspaceFolder}/NativeTimelapseGenerator/ubsan.supp" \
+    -ex "run" ./NativeTimelapseGenerator
+```
+Backup generation can be tested with the following:
+```
+start_generation https://github.com/rplacetk/canvas1 https://raw.githubusercontent.com/rplacetk/canvas1 https://server.rplace.live commit_hashes.txt 10
+```
