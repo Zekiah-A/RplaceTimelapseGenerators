@@ -1,3 +1,7 @@
 {
-    "cmake.sourceDirectory": "${workspaceFolder}/NativeTimelapseGenerator"
+    "cmake.sourceDirectory": "${workspaceFolder}/NativeTimelapseGenerator",
+    "lldb.displayFormat": "auto",
+    "lldb.showDisassembly": "auto",
+    "lldb.dereferencePointers": false,
+    "lldb.consoleMode": "commands"
 }

@@ -34,19 +34,25 @@ struct fetch_result {
 	const char* error_msg;
 };
 
-Colour colour_hash(const char* text)
-{
-	uint32_t hash = 0;
-	while (*text) {
-		hash = (hash * 31 + (unsigned char)(*text)) & 0xFFFFFFFF;
-		text++;
+const Colour CHAT_COLOURS[] = {
+	(Colour) { .r = 173, .g = 216, .b = 230, .a = 255 }, // lightblue
+	(Colour) { .r = 0, .g = 0, .b = 128, .a = 255 }, // navy
+	(Colour) { .r = 0, .g = 128, .b = 0, .a = 255 }, // green
+	(Colour) { .r = 128, .g = 0, .b = 128, .a = 255 }, // purple
+	(Colour) { .r = 128, .g = 128, .b = 128, .a = 255 }, // grey
+	(Colour) { .r = 165, .g = 42, .b = 42, .a = 255 }, // brown
+	(Colour) { .r = 255, .g = 69, .b = 0, .a = 255 }, // orangered
+	(Colour) { .r = 255, .g = 215, .b = 0, .a = 255 }, // gold
+};
+
+Colour colour_hash(char* buffer) {
+	unsigned int hash = 0;
+
+	for (int i = 0; buffer[i] != '\0'; i++) {
+		hash = (hash * 31 + (unsigned char)buffer[i]) & 0xFFFFFFFF;
 	}
-	return (Colour) {
-		.r = (hash >> 24) & 0xFF,
-		.g = (hash >> 16) & 0xFF,
-		.b = (hash >> 8) & 0xFF,
-		.a = hash & 0xFF
-	};
+
+	return CHAT_COLOURS[hash & 7];
 }
 
 size_t fetch_memory_callback(void* contents, size_t size, size_t nmemb, void* userp)
