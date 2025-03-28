@@ -490,7 +490,7 @@ DownloadResult* download(const WorkerInfo* worker_info, DownloadJob job)
 	}
 }
 
-void on_thread_exit(void* data)
+void on_download_worker_thread_exit(void* data)
 {
 	const WorkerInfo* worker_info = (const WorkerInfo*) data;
 	DownloadWorkerInstance* instance = worker_info->download_worker_instance;
@@ -507,7 +507,7 @@ void* start_download_worker(void* data)
 {
 	// Initialise worker / thread globals & exit handler
 	const WorkerInfo* worker_info = (const WorkerInfo*) data;
-	pthread_cleanup_push(on_thread_exit, worker_info);
+	pthread_cleanup_push(on_download_worker_thread_exit, worker_info);
 	
 	// Initialise instance members
 	CURL* curl_handle = curl_easy_init();

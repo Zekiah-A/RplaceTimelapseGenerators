@@ -471,7 +471,7 @@ RenderResult render(RenderJob job)
 	return result;
 }
 
-void on_thread_exit(void* data)
+void on_render_worker_thread_exit(void* data)
 {
 	const WorkerInfo* worker_info = (const WorkerInfo*) data;
 
@@ -483,7 +483,7 @@ void* start_render_worker(void* data)
 {
 	// Initialise worker / thread globals  & exit handler
 	const WorkerInfo* worker_info = (const WorkerInfo*) data;
-	pthread_cleanup_push(on_thread_exit, worker_info);
+	pthread_cleanup_push(on_render_worker_thread_exit, worker_info);
 
 	log_message(LOG_INFO, LOG_HEADER"Started render worker with thread id %d",
 		worker_info->worker_id, worker_info->thread_id);
