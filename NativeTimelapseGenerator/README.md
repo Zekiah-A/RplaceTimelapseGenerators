@@ -62,7 +62,7 @@ save to be produced, and a date render will cause a `DATE_RENDER` save to be pro
 ## Building and Running:
 > [!NOTE]
 > The functionality of this program has only been tested on linux. Operation on any
-> other system is unsupported and not guarenteed to work!
+> other system is unsupported and not guaranteed to work!
 
 ### Prerequisites
 
@@ -150,4 +150,9 @@ gdb -ex "set environment ASAN_OPTIONS=halt_on_error=1:log_path=asan.log:suppress
 Backup generation can be tested with the following:
 ```
 start_generation https://github.com/rplacetk/canvas1 https://raw.githubusercontent.com/rplacetk/canvas1 https://server.rplace.live commit_hashes.txt 10
+```
+In the case that the TCP socket is occupied after an unexpected shutdown, `fuser`
+can be used to automatically kill any existing process making use of that socket:
+```
+fuser -k 5555/tcp
 ```

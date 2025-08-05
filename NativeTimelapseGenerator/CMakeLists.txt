@@ -1,5 +1,5 @@
 # Define project and standard settings
-cmake_minimum_required(VERSION 3.31)
+cmake_minimum_required(VERSION 3.5)
 project(NativeTimelapseGenerator)
 
 # Set C standard to 23
