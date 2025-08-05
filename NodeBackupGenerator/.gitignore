@@ -1,2 +1,6 @@
 node_modules/
 NativeTimelapseGenerator/console
+
+# Generated files
+*.png
+place
